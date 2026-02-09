@@ -1,0 +1,89 @@
+[
+    {
+        "id": "video-001",
+        "video_url": "https://www.w3schools.com/html/mov_bbb.mp4",
+        "model_output": {
+            "segments": [
+                { "start": 0, "end": 3, "label": "开场", "description": "大象角色出现在画面中" },
+                { "start": 3, "end": 7, "label": "主体", "description": "兔子和小鸟之间的互动场景" },
+                { "start": 7, "end": 10, "label": "结尾", "description": "场景逐渐结束" }
+            ],
+            "text_understanding": {
+                "summary": "这是一个卡通动画短片，讲述森林动物之间的友谊故事",
+                "entities": ["大象", "兔子", "小鸟", "蝴蝶"],
+                "sentiment": "positive",
+                "themes": ["友谊", "自然", "和谐"],
+                "language": "无对白"
+            },
+            "visual_understanding": {
+                "scene_type": "户外自然场景",
+                "objects_detected": ["大象", "兔子", "蝴蝶", "树木", "草地", "花朵"],
+                "color_palette": ["绿色", "蓝色", "棕色", "白色"],
+                "motion_intensity": "medium",
+                "lighting": "明亮的日光",
+                "camera_movement": "平稳"
+            },
+            "keyframes": [
+                { "time": 1, "label": "大象特写镜头" },
+                { "time": 4, "label": "兔子出场" },
+                { "time": 6, "label": "互动高潮" },
+                { "time": 9, "label": "结束画面" }
+            ]
+        }
+    },
+    {
+        "id": "video-002",
+        "video_url": "https://www.w3schools.com/html/movie.mp4",
+        "model_output": {
+            "segments": [
+                { "start": 0, "end": 3, "label": "开场白", "description": "Bear角色介绍" },
+                { "start": 3, "end": 6, "label": "主体内容", "description": "场景展示" }
+            ],
+            "text_understanding": {
+                "summary": "Big Buck Bunny 动画片段，展示主角Bear",
+                "entities": ["Bear"],
+                "sentiment": "neutral",
+                "themes": ["介绍", "动画"],
+                "language": "英文"
+            },
+            "visual_understanding": {
+                "scene_type": "动画场景",
+                "objects_detected": ["熊", "文字标题"],
+                "color_palette": ["棕色", "绿色", "白色"],
+                "motion_intensity": "low",
+                "lighting": "柔和",
+                "camera_movement": "静止"
+            },
+            "keyframes": [
+                { "time": 2, "label": "标题画面" },
+                { "time": 5, "label": "主体画面" }
+            ]
+        }
+    },
+    {
+        "id": "video-003",
+        "video_url": "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.webm",
+        "model_output": {
+            "segments": [
+                { "start": 0, "end": 5, "label": "花朵特写", "description": "蜜蜂采蜜场景" }
+            ],
+            "text_understanding": {
+                "summary": "自然纪录片片段，展示蜜蜂在花朵上采蜜的过程",
+                "entities": ["蜜蜂", "花朵"],
+                "sentiment": "positive",
+                "themes": ["自然", "生态", "微观世界"]
+            },
+            "visual_understanding": {
+                "scene_type": "微距自然摄影",
+                "objects_detected": ["蜜蜂", "花瓣", "花蕊"],
+                "color_palette": ["紫色", "黄色", "绿色"],
+                "motion_intensity": "low",
+                "lighting": "自然光"
+            },
+            "keyframes": [
+                { "time": 2, "label": "蜜蜂着陆" },
+                { "time": 4, "label": "采蜜特写" }
+            ]
+        }
+    }
+]

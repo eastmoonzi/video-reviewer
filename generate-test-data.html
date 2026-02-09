@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>读取Excel并生成测试数据</title>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    <style>
+        body { font-family: sans-serif; padding: 20px; max-width: 1200px; margin: 0 auto; }
+        .section { margin: 20px 0; padding: 15px; border: 1px solid #ddd; border-radius: 8px; }
+        pre { background: #f5f5f5; padding: 10px; overflow: auto; max-height: 400px; font-size: 12px; }
+        button { padding: 10px 20px; background: #3b82f6; color: white; border: none; border-radius: 5px; cursor: pointer; margin: 5px; }
+        button:hover { background: #2563eb; }
+        h2 { color: #333; border-bottom: 2px solid #3b82f6; padding-bottom: 10px; }
+    </style>
+</head>
+<body>
+    <h1>📊 Excel 读取与测试数据生成工具</h1>
+    
+    <div class="section">
+        <h2>1. 读取现有 Excel 文件</h2>
+        <p>选择 example.xlsx 查看其格式：</p>
+        <input type="file" id="read-file" accept=".xlsx,.xls">
+        <div id="read-output"></div>
+    </div>
+    
+    <div class="section">
+        <h2>2. 生成测试数据</h2>
+        <p>点击按钮生成包含多组数据的测试Excel文件：</p>
+        <button onclick="generateTestData()">生成测试数据 (test-multi-groups.xlsx)</button>
+    </div>
+
+    <script>
+        // 读取Excel文件
+        document.getElementById('read-file').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const workbook = XLSX.read(e.target.result, { type: 'array', raw: false });
+                const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                const rows = XLSX.utils.sheet_to_json(firstSheet, { header: 1, raw: false, defval: '' });
+                
+                let html = `<h3>文件结构：${rows.length} 行，${rows[0]?.length || 0} 列</h3>`;
+                
+                rows.forEach((row, i) => {
+                    html += `<div style="margin:10px 0; padding:10px; background:#f9f9f9; border-radius:5px;">`;
+                    html += `<strong>第 ${i + 1} 行：</strong><br>`;
+                    row.forEach((cell, j) => {
+                        const preview = cell ? cell.toString().substring(0, 200) : '(空)';
+                        html += `<div style="margin:5px 0;"><strong>列${j + 1}:</strong> ${preview}${cell && cell.length > 200 ? '...' : ''}</div>`;
+                    });
+                    html += `</div>`;
+                });
+                
+                document.getElementById('read-output').innerHTML = html;
+            };
+            reader.readAsArrayBuffer(file);
+        });
+
+        // 生成测试数据
+        function generateTestData() {
+            // 模拟数据 - 3个视频，每个视频有2-3组数据
+            const testData = [
+                // 第1行：测试视频1，3组数据
+                [
+                    "https://www.w3schools.com/html/mov_bbb.mp4",
+                    JSON.stringify({
+                        segment_detail: [
+                            { time: [0, 3], text: "【数据组1】大象角色出现在画面中央", vis: "一只灰色的大象站在绿色草地上，背景是蓝天白云", key_frame: [{ time: 1, desc: "大象正面特写" }] },
+                            { time: [3, 7], text: "【数据组1】兔子和小鸟开始互动", vis: "白色的兔子和一只黄色小鸟在草地上嬉戏", key_frame: [{ time: 5, desc: "兔子和小鸟互动镜头" }] },
+                            { time: [7, 10], text: "【数据组1】场景逐渐结束", vis: "所有动物角色渐渐远去", key_frame: [{ time: 9, desc: "结束画面" }] }
+                        ]
+                    }),
+                    JSON.stringify({
+                        segment_detail: [
+                            { time: [0, 5], text: "【数据组2】动画开场，展示森林场景", vis: "茂密的森林，阳光透过树叶", key_frame: [{ time: 2, desc: "森林全景" }] },
+                            { time: [5, 10], text: "【数据组2】动物们聚集在一起", vis: "大象、兔子、小鸟等动物聚集在草地上", key_frame: [{ time: 8, desc: "动物群像" }] }
+                        ]
+                    }),
+                    JSON.stringify({
+                        segment_detail: [
+                            { time: [0, 4], text: "【数据组3】第一幕：介绍主角", vis: "可爱的卡通动物角色出场", key_frame: [{ time: 2, desc: "主角亮相" }] },
+                            { time: [4, 7], text: "【数据组3】第二幕：故事发展", vis: "动物们之间的友谊互动", key_frame: [{ time: 6, desc: "友谊场景" }] },
+                            { time: [7, 10], text: "【数据组3】第三幕：结局", vis: "温馨的结尾画面", key_frame: [{ time: 9, desc: "温馨结局" }] }
+                        ]
+                    })
+                ],
+                // 第2行：测试视频2，2组数据
+                [
+                    "https://www.w3schools.com/html/movie.mp4",
+                    JSON.stringify({
+                        segment_detail: [
+                            { time: [0, 3], text: "【A模型】Bear角色自我介绍", vis: "棕色的熊站在草地上，面带微笑", key_frame: [{ time: 1.5, desc: "Bear正面" }] },
+                            { time: [3, 6], text: "【A模型】展示Bear的日常生活", vis: "Bear在森林中漫步", key_frame: [{ time: 4.5, desc: "Bear行走" }] }
+                        ]
+                    }),
+                    JSON.stringify({
+                        segment_detail: [
+                            { time: [0, 2], text: "【B模型】片头LOGO展示", vis: "Big Buck Bunny的动画LOGO", key_frame: [{ time: 1, desc: "LOGO画面" }] },
+                            { time: [2, 4], text: "【B模型】主角Bear登场", vis: "Bear从画面左侧走入", key_frame: [{ time: 3, desc: "Bear入场" }] },
+                            { time: [4, 6], text: "【B模型】Bear做表情", vis: "Bear展示各种可爱表情", key_frame: [{ time: 5, desc: "Bear表情特写" }] }
+                        ]
+                    })
+                ],
+                // 第3行：测试视频3，2组数据
+                [
+                    "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.webm",
+                    JSON.stringify({
+                        segment_detail: [
+                            { time: [0, 2.5], text: "【版本1】特写展示一朵盛开的花", vis: "粉色花朵特写，花瓣层次分明，蜜蜂在采蜜", key_frame: [{ time: 1, desc: "花朵特写" }] },
+                            { time: [2.5, 5], text: "【版本1】蜜蜂在花朵上采集花蜜", vis: "蜜蜂落在花蕊上，翅膀震动", key_frame: [{ time: 4, desc: "蜜蜂采蜜" }] }
+                        ]
+                    }),
+                    JSON.stringify({
+                        segment_detail: [
+                            { time: [0, 1.5], text: "【版本2】镜头推进，展示花朵细节", vis: "花朵由远及近，展示花瓣纹理", key_frame: [{ time: 0.8, desc: "花朵远景" }] },
+                            { time: [1.5, 3], text: "【版本2】自然光线下的花朵", vis: "阳光照射下的花朵，色彩鲜艳", key_frame: [{ time: 2, desc: "自然光花朵" }] },
+                            { time: [3, 5], text: "【版本2】蜜蜂与花朵的互动", vis: "蜜蜂围绕花朵飞舞", key_frame: [{ time: 4, desc: "蜜蜂飞舞" }] }
+                        ]
+                    })
+                ]
+            ];
+
+            // 创建工作簿
+            const wb = XLSX.utils.book_new();
+            const ws = XLSX.utils.aoa_to_sheet(testData);
+            
+            // 设置列宽
+            ws['!cols'] = [
+                { wch: 60 },  // URL列
+                { wch: 100 }, // 数据组1
+                { wch: 100 }, // 数据组2
+                { wch: 100 }  // 数据组3
+            ];
+            
+            XLSX.utils.book_append_sheet(wb, ws, 'TestData');
+            
+            // 下载文件
+            XLSX.writeFile(wb, 'test-multi-groups.xlsx');
+            
+            alert('测试文件 test-multi-groups.xlsx 已生成！\n\n包含：\n- 3个视频\n- 第1个视频有3组数据\n- 第2、3个视频各有2组数据\n\n请在主程序中导入测试。');
+        }
+    </script>
+</body>
+</html>

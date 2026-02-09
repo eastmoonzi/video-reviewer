@@ -1,0 +1,66 @@
+[
+  {
+    "id": "test-001",
+    "video_url": "https://www.w3schools.com/html/mov_bbb.mp4",
+    "model_outputs": [
+      {
+        "segments": [
+          { "start": 0, "end": 3, "description": "【数据组1】大象角色出现在画面中央", "visual": "一只灰色的大象站在绿色草地上，背景是蓝天白云", "keyframes": [{ "time": 1, "label": "大象正面特写" }] },
+          { "start": 3, "end": 7, "description": "【数据组1】兔子和小鸟开始互动", "visual": "白色的兔子和一只黄色小鸟在草地上嬉戏", "keyframes": [{ "time": 5, "label": "兔子和小鸟互动镜头" }] },
+          { "start": 7, "end": 10, "description": "【数据组1】场景逐渐结束", "visual": "所有动物角色渐渐远去", "keyframes": [{ "time": 9, "label": "结束画面" }] }
+        ]
+      },
+      {
+        "segments": [
+          { "start": 0, "end": 5, "description": "【数据组2】动画开场，展示森林场景", "visual": "茂密的森林，阳光透过树叶", "keyframes": [{ "time": 2, "label": "森林全景" }] },
+          { "start": 5, "end": 10, "description": "【数据组2】动物们聚集在一起", "visual": "大象、兔子、小鸟等动物聚集在草地上", "keyframes": [{ "time": 8, "label": "动物群像" }] }
+        ]
+      },
+      {
+        "segments": [
+          { "start": 0, "end": 4, "description": "【数据组3】第一幕：介绍主角", "visual": "可爱的卡通动物角色出场", "keyframes": [{ "time": 2, "label": "主角亮相" }] },
+          { "start": 4, "end": 7, "description": "【数据组3】第二幕：故事发展", "visual": "动物们之间的友谊互动", "keyframes": [{ "time": 6, "label": "友谊场景" }] },
+          { "start": 7, "end": 10, "description": "【数据组3】第三幕：结局", "visual": "温馨的结尾画面", "keyframes": [{ "time": 9, "label": "温馨结局" }] }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "test-002",
+    "video_url": "https://www.w3schools.com/html/movie.mp4",
+    "model_outputs": [
+      {
+        "segments": [
+          { "start": 0, "end": 3, "description": "【A模型】Bear角色自我介绍", "visual": "棕色的熊站在草地上，面带微笑", "keyframes": [{ "time": 1.5, "label": "Bear正面" }] },
+          { "start": 3, "end": 6, "description": "【A模型】展示Bear的日常生活", "visual": "Bear在森林中漫步", "keyframes": [{ "time": 4.5, "label": "Bear行走" }] }
+        ]
+      },
+      {
+        "segments": [
+          { "start": 0, "end": 2, "description": "【B模型】片头LOGO展示", "visual": "Big Buck Bunny的动画LOGO", "keyframes": [{ "time": 1, "label": "LOGO画面" }] },
+          { "start": 2, "end": 4, "description": "【B模型】主角Bear登场", "visual": "Bear从画面左侧走入", "keyframes": [{ "time": 3, "label": "Bear入场" }] },
+          { "start": 4, "end": 6, "description": "【B模型】Bear做表情", "visual": "Bear展示各种可爱表情", "keyframes": [{ "time": 5, "label": "Bear表情特写" }] }
+        ]
+      }
+    ]
+  },
+  {
+    "id": "test-003",
+    "video_url": "https://interactive-examples.mdn.mozilla.net/media/cc0-videos/flower.webm",
+    "model_outputs": [
+      {
+        "segments": [
+          { "start": 0, "end": 2.5, "description": "【版本1】特写展示一朵盛开的花", "visual": "粉色花朵特写，花瓣层次分明，蜜蜂在采蜜", "keyframes": [{ "time": 1, "label": "花朵特写" }] },
+          { "start": 2.5, "end": 5, "description": "【版本1】蜜蜂在花朵上采集花蜜", "visual": "蜜蜂落在花蕊上，翅膀震动", "keyframes": [{ "time": 4, "label": "蜜蜂采蜜" }] }
+        ]
+      },
+      {
+        "segments": [
+          { "start": 0, "end": 1.5, "description": "【版本2】镜头推进，展示花朵细节", "visual": "花朵由远及近，展示花瓣纹理", "keyframes": [{ "time": 0.8, "label": "花朵远景" }] },
+          { "start": 1.5, "end": 3, "description": "【版本2】自然光线下的花朵", "visual": "阳光照射下的花朵，色彩鲜艳", "keyframes": [{ "time": 2, "label": "自然光花朵" }] },
+          { "start": 3, "end": 5, "description": "【版本2】蜜蜂与花朵的互动", "visual": "蜜蜂围绕花朵飞舞", "keyframes": [{ "time": 4, "label": "蜜蜂飞舞" }] }
+        ]
+      }
+    ]
+  }
+]

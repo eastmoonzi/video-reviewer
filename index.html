@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>视频审查工作台</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css" rel="stylesheet">
+    <style>
+        .tab-active { background-color: #3b82f6; color: white; }
+        .rating-star { cursor: pointer; transition: color 0.2s; }
+        .rating-star:hover { color: #fbbf24; }
+        .rating-star.active { color: #fbbf24; }
+        .timeline-segment { cursor: pointer; transition: opacity 0.2s; }
+        .timeline-segment:hover { opacity: 0.8; }
+        .keyframe-thumb { cursor: pointer; transition: transform 0.2s; }
+        .keyframe-thumb:hover { transform: scale(1.05); }
+        .json-tree { font-family: monospace; font-size: 13px; }
+        .json-key { color: #881391; }
+        .json-string { color: #0B7500; }
+        .json-number { color: #1A01CC; }
+        .json-boolean { color: #1A01CC; }
+        .task-item { transition: background-color 0.2s; }
+        .task-item:hover { background-color: #f3f4f6; }
+        .task-item.active { background-color: #dbeafe; border-left: 3px solid #3b82f6; }
+        /* 侧边栏折叠样式 */
+        #task-sidebar { transition: width 0.3s ease, margin-left 0.3s ease; }
+        #task-sidebar.collapsed { width: 0; margin-left: -1px; overflow: hidden; }
+        #sidebar-toggle { transition: transform 0.3s ease; }
+        #sidebar-toggle.collapsed { transform: rotate(180deg); }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div id="app" class="flex h-screen">
+        <!-- 左侧任务列表 -->
+        <aside id="task-sidebar" class="w-72 bg-white shadow-lg flex flex-col">
+            <div class="p-4 border-b">
+                <h2 class="text-lg font-bold text-gray-800 flex items-center">
+                    <span class="mdi mdi-clipboard-list-outline mr-2"></span>
+                    任务队列
+                </h2>
+                <div class="mt-3 flex gap-2">
+                    <button onclick="importTasks()" class="flex-1 px-3 py-1.5 bg-blue-500 text-white text-sm rounded hover:bg-blue-600">
+                        <span class="mdi mdi-import"></span> 导入
+                    </button>
+                    <button onclick="exportResults()" class="flex-1 px-3 py-1.5 bg-green-500 text-white text-sm rounded hover:bg-green-600">
+                        <span class="mdi mdi-export"></span> 导出
+                    </button>
+                </div>
+                <button onclick="clearAllTasks()" class="mt-2 w-full px-3 py-1.5 bg-red-500 text-white text-sm rounded hover:bg-red-600">
+                    <span class="mdi mdi-delete-sweep"></span> 清空任务
+                </button>
+            </div>
+            <!-- 进度统计 -->
+            <div class="p-4 border-b bg-gray-50">
+                <div class="flex justify-between text-sm text-gray-600 mb-2">
+                    <span>审查进度</span>
+                    <span id="progress-text">0/0</span>
+                </div>
+                <div class="w-full bg-gray-200 rounded-full h-2">
+                    <div id="progress-bar" class="bg-blue-500 h-2 rounded-full transition-all" style="width: 0%"></div>
+                </div>
+                <div class="flex justify-between mt-2 text-xs">
+                    <span class="text-green-600"><span id="completed-count">0</span> 已完成</span>
+                    <span class="text-yellow-600"><span id="pending-count">0</span> 待审查</span>
+                </div>
+            </div>
+            <!-- 任务列表 -->
+            <div id="task-list" class="flex-1 overflow-y-auto">
+                <div class="p-8 text-center text-gray-400">
+                    <span class="mdi mdi-inbox-outline text-4xl"></span>
+                    <p class="mt-2">暂无任务</p>
+                    <p class="text-sm">点击"导入"添加任务</p>
+                </div>
+            </div>
+        </aside>
+
+        <!-- 主内容区 -->
+        <main class="flex-1 flex flex-col overflow-hidden">
+            <!-- 顶部导航 -->
+            <header class="bg-white shadow px-6 py-3 flex items-center justify-between">
+                <div class="flex items-center">
+                    <button id="sidebar-toggle" onclick="toggleSidebar()" class="mr-3 p-1 text-gray-500 hover:text-blue-500 hover:bg-gray-100 rounded" title="收起/展开任务列表">
+                        <span class="mdi mdi-menu-open text-xl"></span>
+                    </button>
+                    <span class="mdi mdi-video-check text-2xl text-blue-500 mr-2"></span>
+                    <h1 class="text-xl font-bold text-gray-800">视频审查工作台</h1>
+                </div>
+                <div class="flex items-center gap-4">
+                    <span id="current-task-label" class="text-sm text-gray-500">未选择任务</span>
+                    <button onclick="showHelp()" class="text-gray-400 hover:text-gray-600">
+                        <span class="mdi mdi-help-circle text-xl"></span>
+                    </button>
+                </div>
+            </header>
+
+            <!-- 工作区 -->
+            <div id="workspace" class="flex-1 flex overflow-hidden">
+                <!-- 无任务占位 -->
+                <div id="empty-state" class="flex-1 flex items-center justify-center">
+                    <div class="text-center text-gray-400">
+                        <span class="mdi mdi-video-off-outline text-6xl"></span>
+                        <p class="mt-4 text-lg">请从左侧选择一个任务开始审查</p>
+                        <p class="text-sm mt-2">或点击"导入"按钮添加新任务</p>
+                    </div>
+                </div>
+
+                <!-- 审查工作台（默认隐藏） -->
+                <div id="review-workspace" class="flex-1 flex flex-col hidden">
+                    <div class="flex-1 flex overflow-hidden">
+                        <!-- 左侧：视频播放区 -->
+                        <div class="w-1/2 p-4 flex flex-col">
+                            <div class="bg-black rounded-lg overflow-hidden flex-1 relative">
+                                <video id="video-player" class="absolute inset-0 w-full h-full object-contain" controls playsinline preload="auto"></video>
+                            </div>
+                            <!-- 视频控制 -->
+                            <div class="mt-3 flex items-center gap-3">
+                                <button onclick="seekRelative(-5)" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300 text-sm">
+                                    <span class="mdi mdi-rewind-5"></span> -5s
+                                </button>
+                                <button onclick="seekRelative(-1)" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300 text-sm">
+                                    -1s
+                                </button>
+                                <button onclick="togglePlay()" class="px-4 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm">
+                                    <span id="play-btn-icon" class="mdi mdi-play"></span>
+                                </button>
+                                <button onclick="seekRelative(1)" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300 text-sm">
+                                    +1s
+                                </button>
+                                <button onclick="seekRelative(5)" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300 text-sm">
+                                    +5s <span class="mdi mdi-fast-forward-5"></span>
+                                </button>
+                                <select id="playback-rate" onchange="changePlaybackRate()" class="ml-auto px-2 py-1 border rounded text-sm">
+                                    <option value="0.5">0.5x</option>
+                                    <option value="0.75">0.75x</option>
+                                    <option value="1" selected>1x</option>
+                                    <option value="1.25">1.25x</option>
+                                    <option value="1.5">1.5x</option>
+                                    <option value="2">2x</option>
+                                </select>
+                            </div>
+                            <!-- 时间轴 -->
+                            <div class="mt-3">
+                                <div class="text-sm text-gray-600 mb-1 flex justify-between">
+                                    <span>时间轴</span>
+                                    <span id="time-display">00:00 / 00:00</span>
+                                </div>
+                                <div id="timeline" class="h-8 bg-gray-200 rounded relative cursor-pointer" onclick="seekToPosition(event)">
+                                    <div id="timeline-progress" class="h-full bg-blue-400 rounded-l absolute left-0" style="width: 0%"></div>
+                                    <div id="timeline-segments" class="absolute inset-0"></div>
+                                </div>
+                                <div id="timeline-markers" class="h-4 relative mt-1"></div>
+                            </div>
+                        </div>
+
+                        <!-- 右侧：模型输出面板 -->
+                        <div class="w-1/2 p-4 flex flex-col border-l">
+                            <!-- 数据组切换器 -->
+                            <div id="output-group-switcher" class="mb-3 hidden">
+                                <div class="flex items-center gap-2 p-2 bg-blue-50 rounded">
+                                    <span class="text-sm text-gray-600"><span class="mdi mdi-database"></span> 数据组:</span>
+                                    <div id="output-group-buttons" class="flex gap-1 flex-wrap"></div>
+                                </div>
+                            </div>
+                            <!-- Tab切换 -->
+                            <div class="flex border-b mb-3">
+                                <button onclick="switchTab('text')" class="tab-btn px-4 py-2 text-sm font-medium tab-active rounded-t" data-tab="text">
+                                    <span class="mdi mdi-text"></span> 文本理解
+                                </button>
+                                <button onclick="switchTab('visual')" class="tab-btn px-4 py-2 text-sm font-medium hover:bg-gray-100 rounded-t" data-tab="visual">
+                                    <span class="mdi mdi-eye"></span> 视觉理解
+                                </button>
+                                <button onclick="switchTab('keyframe')" class="tab-btn px-4 py-2 text-sm font-medium hover:bg-gray-100 rounded-t" data-tab="keyframe">
+                                    <span class="mdi mdi-image-multiple"></span> 关键帧
+                                </button>
+                            </div>
+                            <!-- Tab内容 -->
+                            <div id="tab-content" class="flex-1 overflow-y-auto">
+                                <!-- 文本理解 -->
+                                <div id="tab-text" class="tab-panel">
+                                    <div id="text-content" class="space-y-3"></div>
+                                </div>
+                                <!-- 视觉理解 -->
+                                <div id="tab-visual" class="tab-panel hidden">
+                                    <div id="visual-content" class="space-y-3"></div>
+                                </div>
+                                <!-- 关键帧 -->
+                                <div id="tab-keyframe" class="tab-panel hidden">
+                                    <div id="keyframe-content" class="space-y-2"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- 底部：打分区 -->
+                    <div class="bg-white border-t p-4">
+                        <div class="flex flex-col gap-3">
+                            <!-- 四个维度打分，每个带独立备注 -->
+                            <div class="grid grid-cols-4 gap-4">
+                                <div class="border rounded p-2">
+                                    <div class="text-xs text-gray-500 mb-1 text-center">时间段切分</div>
+                                    <div class="rating-group flex justify-center mb-2" data-dimension="time">
+                                        <span class="rating-star mdi mdi-star-outline text-xl" data-value="1"></span>
+                                        <span class="rating-star mdi mdi-star-outline text-xl" data-value="2"></span>
+                                        <span class="rating-star mdi mdi-star-outline text-xl" data-value="3"></span>
+                                    </div>
+                                    <input type="text" id="note-time" placeholder="备注" class="w-full px-2 py-1 text-xs border rounded">
+                                </div>
+                                <div class="border rounded p-2">
+                                    <div class="text-xs text-gray-500 mb-1 text-center">文本理解</div>
+                                    <div class="rating-group flex justify-center mb-2" data-dimension="text">
+                                        <span class="rating-star mdi mdi-star-outline text-xl" data-value="1"></span>
+                                        <span class="rating-star mdi mdi-star-outline text-xl" data-value="2"></span>
+                                        <span class="rating-star mdi mdi-star-outline text-xl" data-value="3"></span>
+                                    </div>
+                                    <input type="text" id="note-text" placeholder="备注" class="w-full px-2 py-1 text-xs border rounded">
+                                </div>
+                                <div class="border rounded p-2">
+                                    <div class="text-xs text-gray-500 mb-1 text-center">视觉理解</div>
+                                    <div class="rating-group flex justify-center mb-2" data-dimension="visual">
+                                        <span class="rating-star mdi mdi-star-outline text-xl" data-value="1"></span>
+                                        <span class="rating-star mdi mdi-star-outline text-xl" data-value="2"></span>
+                                        <span class="rating-star mdi mdi-star-outline text-xl" data-value="3"></span>
+                                    </div>
+                                    <input type="text" id="note-visual" placeholder="备注" class="w-full px-2 py-1 text-xs border rounded">
+                                </div>
+                                <div class="border rounded p-2">
+                                    <div class="text-xs text-gray-500 mb-1 text-center">关键帧提取</div>
+                                    <div class="rating-group flex justify-center mb-2" data-dimension="keyframe">
+                                        <span class="rating-star mdi mdi-star-outline text-xl" data-value="1"></span>
+                                        <span class="rating-star mdi mdi-star-outline text-xl" data-value="2"></span>
+                                        <span class="rating-star mdi mdi-star-outline text-xl" data-value="3"></span>
+                                    </div>
+                                    <input type="text" id="note-keyframe" placeholder="备注" class="w-full px-2 py-1 text-xs border rounded">
+                                </div>
+                            </div>
+                            <!-- 操作按钮 -->
+                            <div class="flex justify-end gap-2">
+                                <button onclick="skipTask()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300">
+                                    <span class="mdi mdi-skip-next"></span> 跳过
+                                </button>
+                                <button onclick="submitReview()" class="px-6 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
+                                    <span class="mdi mdi-check"></span> 提交并下一条
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- 导入模态框 -->
+    <div id="import-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl w-[600px] max-h-[80vh] overflow-hidden">
+            <div class="p-4 border-b flex justify-between items-center">
+                <h3 class="text-lg font-bold">导入任务</h3>
+                <button onclick="closeImportModal()" class="text-gray-400 hover:text-gray-600">
+                    <span class="mdi mdi-close text-xl"></span>
+                </button>
+            </div>
+            <div class="p-4">
+                <div class="mb-2">
+                    <label class="block text-sm font-medium text-gray-700 mb-2">选择 Excel 文件</label>
+                </div>
+                <div id="import-file-section">
+                    <input type="file" id="import-file" accept=".xlsx,.xls" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+                    <p class="mt-2 text-xs text-gray-500">
+                        格式要求：第一列为视频URL，第二列及之后为JSON数据（可多列）<br>
+                        <a href="#" onclick="showFormatHelp()" class="text-blue-500 hover:underline">查看格式说明</a>
+                    </p>
+                </div>
+            </div>
+            <div class="p-4 border-t bg-gray-50 flex justify-end gap-2">
+                <button onclick="closeImportModal()" class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">取消</button>
+                <button onclick="confirmImport()" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">确认导入</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 帮助模态框 -->
+    <div id="help-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl w-[500px] max-h-[80vh] overflow-auto">
+            <div class="p-4 border-b flex justify-between items-center">
+                <h3 class="text-lg font-bold">使用帮助</h3>
+                <button onclick="closeHelpModal()" class="text-gray-400 hover:text-gray-600">
+                    <span class="mdi mdi-close text-xl"></span>
+                </button>
+            </div>
+            <div class="p-4 text-sm">
+                <h4 class="font-bold mb-2">快捷键</h4>
+                <table class="w-full mb-4">
+                    <tr class="border-b"><td class="py-1"><kbd class="bg-gray-100 px-2 rounded">Space</kbd></td><td>播放/暂停</td></tr>
+                    <tr class="border-b"><td class="py-1"><kbd class="bg-gray-100 px-2 rounded">←</kbd></td><td>后退5秒</td></tr>
+                    <tr class="border-b"><td class="py-1"><kbd class="bg-gray-100 px-2 rounded">→</kbd></td><td>前进5秒</td></tr>
+                    <tr class="border-b"><td class="py-1"><kbd class="bg-gray-100 px-2 rounded">1-5</kbd></td><td>快速打分（当前维度）</td></tr>
+                    <tr class="border-b"><td class="py-1"><kbd class="bg-gray-100 px-2 rounded">Enter</kbd></td><td>提交并下一条</td></tr>
+                    <tr class="border-b"><td class="py-1"><kbd class="bg-gray-100 px-2 rounded">Tab</kbd></td><td>切换维度标签</td></tr>
+                </table>
+                <h4 class="font-bold mb-2">数据格式说明</h4>
+                <pre class="bg-gray-100 p-2 rounded text-xs overflow-auto">[
+  {
+    "id": "task-001",
+    "video_url": "https://example.com/video.mp4",
+    "model_output": {
+      "segments": [...],
+      "text_understanding": {...},
+      "visual_understanding": {...},
+      "keyframes": [...]
+    }
+  }
+]</pre>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
