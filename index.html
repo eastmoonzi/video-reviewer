@@ -86,6 +86,15 @@
                     </button>
                     <span class="mdi mdi-video-check text-2xl text-blue-500 mr-2"></span>
                     <h1 class="text-xl font-bold text-gray-800">视频审查工作台</h1>
+                    <!-- 审核模式切换 -->
+                    <div class="ml-6 flex bg-gray-100 rounded-lg p-1">
+                        <button id="mode-segment" onclick="switchReviewMode('segment')" class="mode-btn px-3 py-1 text-sm rounded-md bg-blue-500 text-white">
+                            分段语义详情
+                        </button>
+                        <button id="mode-profile" onclick="switchReviewMode('profile')" class="mode-btn px-3 py-1 text-sm rounded-md text-gray-600 hover:bg-gray-200">
+                            全篇语义画像
+                        </button>
+                    </div>
                 </div>
                 <div class="flex items-center gap-4">
                     <span id="current-task-label" class="text-sm text-gray-500">未选择任务</span>
@@ -155,52 +164,69 @@
                         </div>
 
                         <!-- 右侧：模型输出面板 -->
-                        <div class="w-1/2 p-4 flex flex-col border-l">
+                        <div class="w-1/2 p-4 flex flex-col border-l overflow-hidden">
                             <!-- 数据组切换器 -->
-                            <div id="output-group-switcher" class="mb-3 hidden">
+                            <div id="output-group-switcher" class="mb-3 hidden flex-shrink-0">
                                 <div class="flex items-center gap-2 p-2 bg-blue-50 rounded">
                                     <span class="text-sm text-gray-600"><span class="mdi mdi-database"></span> 数据组:</span>
                                     <div id="output-group-buttons" class="flex gap-1 flex-wrap"></div>
                                 </div>
                             </div>
-                            <!-- Tab切换 -->
-                            <div class="flex border-b mb-3">
-                                <button onclick="switchTab('text')" class="tab-btn px-4 py-2 text-sm font-medium tab-active rounded-t" data-tab="text">
-                                    <span class="mdi mdi-text"></span> 文本理解
-                                </button>
-                                <button onclick="switchTab('visual')" class="tab-btn px-4 py-2 text-sm font-medium hover:bg-gray-100 rounded-t" data-tab="visual">
-                                    <span class="mdi mdi-eye"></span> 视觉理解
-                                </button>
-                                <button onclick="switchTab('keyframe')" class="tab-btn px-4 py-2 text-sm font-medium hover:bg-gray-100 rounded-t" data-tab="keyframe">
-                                    <span class="mdi mdi-image-multiple"></span> 关键帧
-                                </button>
+                            <!-- 分段语义详情模式 - Tab切换 -->
+                            <div id="segment-mode-content" class="flex flex-col flex-1 overflow-hidden">
+                                <div class="flex border-b mb-3 flex-shrink-0">
+                                    <button onclick="switchTab('text')" class="tab-btn px-4 py-2 text-sm font-medium tab-active rounded-t" data-tab="text">
+                                        <span class="mdi mdi-text"></span> 文本理解
+                                    </button>
+                                    <button onclick="switchTab('visual')" class="tab-btn px-4 py-2 text-sm font-medium hover:bg-gray-100 rounded-t" data-tab="visual">
+                                        <span class="mdi mdi-eye"></span> 视觉理解
+                                    </button>
+                                    <button onclick="switchTab('keyframe')" class="tab-btn px-4 py-2 text-sm font-medium hover:bg-gray-100 rounded-t" data-tab="keyframe">
+                                        <span class="mdi mdi-image-multiple"></span> 关键帧
+                                    </button>
+                                </div>
+                                <!-- Tab内容 -->
+                                <div id="tab-content" class="flex-1 overflow-y-auto">
+                                    <!-- 文本理解 -->
+                                    <div id="tab-text" class="tab-panel">
+                                        <div id="text-content" class="space-y-3"></div>
+                                    </div>
+                                    <!-- 视觉理解 -->
+                                    <div id="tab-visual" class="tab-panel hidden">
+                                        <div id="visual-content" class="space-y-3"></div>
+                                    </div>
+                                    <!-- 关键帧 -->
+                                    <div id="tab-keyframe" class="tab-panel hidden">
+                                        <div id="keyframe-content" class="space-y-2"></div>
+                                    </div>
+                                </div>
                             </div>
-                            <!-- Tab内容 -->
-                            <div id="tab-content" class="flex-1 overflow-y-auto">
-                                <!-- 文本理解 -->
-                                <div id="tab-text" class="tab-panel">
-                                    <div id="text-content" class="space-y-3"></div>
-                                </div>
-                                <!-- 视觉理解 -->
-                                <div id="tab-visual" class="tab-panel hidden">
-                                    <div id="visual-content" class="space-y-3"></div>
-                                </div>
-                                <!-- 关键帧 -->
-                                <div id="tab-keyframe" class="tab-panel hidden">
-                                    <div id="keyframe-content" class="space-y-2"></div>
-                                </div>
+                            
+                            <!-- 全篇语义画像模式 - 内容展示 -->
+                            <div id="profile-mode-content" class="hidden flex flex-col flex-1 overflow-hidden">
+                                <div id="profile-content" class="space-y-3 flex-1 overflow-y-auto pr-2"></div>
                             </div>
                         </div>
                     </div>
 
                     <!-- 底部：打分区 -->
-                    <div class="bg-white border-t p-4">
+                    <div id="rating-section" class="bg-white border-t transition-all duration-300">
+                        <!-- 折叠按钮 -->
+                        <div class="flex items-center justify-between px-4 py-2 border-b cursor-pointer hover:bg-gray-50" onclick="toggleRatingPanel()">
+                            <div class="flex items-center text-sm text-gray-600">
+                                <span class="mdi mdi-star-box mr-2"></span>
+                                <span>评分面板</span>
+                            </div>
+                            <span id="rating-toggle-icon" class="mdi mdi-chevron-down text-gray-400 transition-transform duration-300"></span>
+                        </div>
+                        <!-- 可折叠内容 -->
+                        <div id="rating-panel-content" class="p-4 transition-all duration-300 overflow-hidden">
                         <div class="flex flex-col gap-3">
-                            <!-- 四个维度打分，每个带独立备注 -->
-                            <div class="grid grid-cols-4 gap-4">
+                            <!-- 分段语义详情 - 四个维度打分（1-3分） -->
+                            <div id="segment-rating-panel" class="grid grid-cols-4 gap-4">
                                 <div class="border rounded p-2">
                                     <div class="text-xs text-gray-500 mb-1 text-center">时间段切分</div>
-                                    <div class="rating-group flex justify-center mb-2" data-dimension="time">
+                                    <div class="rating-group flex justify-center mb-2" data-dimension="time" data-mode="segment">
                                         <span class="rating-star mdi mdi-star-outline text-xl" data-value="1"></span>
                                         <span class="rating-star mdi mdi-star-outline text-xl" data-value="2"></span>
                                         <span class="rating-star mdi mdi-star-outline text-xl" data-value="3"></span>
@@ -209,7 +235,7 @@
                                 </div>
                                 <div class="border rounded p-2">
                                     <div class="text-xs text-gray-500 mb-1 text-center">文本理解</div>
-                                    <div class="rating-group flex justify-center mb-2" data-dimension="text">
+                                    <div class="rating-group flex justify-center mb-2" data-dimension="text" data-mode="segment">
                                         <span class="rating-star mdi mdi-star-outline text-xl" data-value="1"></span>
                                         <span class="rating-star mdi mdi-star-outline text-xl" data-value="2"></span>
                                         <span class="rating-star mdi mdi-star-outline text-xl" data-value="3"></span>
@@ -218,7 +244,7 @@
                                 </div>
                                 <div class="border rounded p-2">
                                     <div class="text-xs text-gray-500 mb-1 text-center">视觉理解</div>
-                                    <div class="rating-group flex justify-center mb-2" data-dimension="visual">
+                                    <div class="rating-group flex justify-center mb-2" data-dimension="visual" data-mode="segment">
                                         <span class="rating-star mdi mdi-star-outline text-xl" data-value="1"></span>
                                         <span class="rating-star mdi mdi-star-outline text-xl" data-value="2"></span>
                                         <span class="rating-star mdi mdi-star-outline text-xl" data-value="3"></span>
@@ -227,12 +253,83 @@
                                 </div>
                                 <div class="border rounded p-2">
                                     <div class="text-xs text-gray-500 mb-1 text-center">关键帧提取</div>
-                                    <div class="rating-group flex justify-center mb-2" data-dimension="keyframe">
+                                    <div class="rating-group flex justify-center mb-2" data-dimension="keyframe" data-mode="segment">
                                         <span class="rating-star mdi mdi-star-outline text-xl" data-value="1"></span>
                                         <span class="rating-star mdi mdi-star-outline text-xl" data-value="2"></span>
                                         <span class="rating-star mdi mdi-star-outline text-xl" data-value="3"></span>
                                     </div>
                                     <input type="text" id="note-keyframe" placeholder="备注" class="w-full px-2 py-1 text-xs border rounded">
+                                </div>
+                            </div>
+                            
+                            <!-- 全篇语义画像 - 七个维度打分（0-2分） -->
+                            <div id="profile-rating-panel" class="hidden">
+                                <div class="grid grid-cols-4 gap-3 mb-3">
+                                    <div class="border rounded p-2">
+                                        <div class="text-xs text-gray-500 mb-1 text-center">叙事类型</div>
+                                        <div class="rating-group flex justify-center mb-2" data-dimension="narrative_type" data-mode="profile">
+                                            <span class="rating-star mdi mdi-numeric-0-circle-outline text-xl" data-value="0"></span>
+                                            <span class="rating-star mdi mdi-numeric-1-circle-outline text-xl" data-value="1"></span>
+                                            <span class="rating-star mdi mdi-numeric-2-circle-outline text-xl" data-value="2"></span>
+                                        </div>
+                                        <input type="text" id="note-narrative_type" placeholder="备注" class="w-full px-2 py-1 text-xs border rounded">
+                                    </div>
+                                    <div class="border rounded p-2">
+                                        <div class="text-xs text-gray-500 mb-1 text-center">画面类型</div>
+                                        <div class="rating-group flex justify-center mb-2" data-dimension="visual_type" data-mode="profile">
+                                            <span class="rating-star mdi mdi-numeric-0-circle-outline text-xl" data-value="0"></span>
+                                            <span class="rating-star mdi mdi-numeric-1-circle-outline text-xl" data-value="1"></span>
+                                            <span class="rating-star mdi mdi-numeric-2-circle-outline text-xl" data-value="2"></span>
+                                        </div>
+                                        <input type="text" id="note-visual_type" placeholder="备注" class="w-full px-2 py-1 text-xs border rounded">
+                                    </div>
+                                    <div class="border rounded p-2">
+                                        <div class="text-xs text-gray-500 mb-1 text-center">内容总结</div>
+                                        <div class="rating-group flex justify-center mb-2" data-dimension="summary" data-mode="profile">
+                                            <span class="rating-star mdi mdi-numeric-0-circle-outline text-xl" data-value="0"></span>
+                                            <span class="rating-star mdi mdi-numeric-1-circle-outline text-xl" data-value="1"></span>
+                                            <span class="rating-star mdi mdi-numeric-2-circle-outline text-xl" data-value="2"></span>
+                                        </div>
+                                        <input type="text" id="note-summary" placeholder="备注" class="w-full px-2 py-1 text-xs border rounded">
+                                    </div>
+                                    <div class="border rounded p-2">
+                                        <div class="text-xs text-gray-500 mb-1 text-center">创作意图</div>
+                                        <div class="rating-group flex justify-center mb-2" data-dimension="intent_type" data-mode="profile">
+                                            <span class="rating-star mdi mdi-numeric-0-circle-outline text-xl" data-value="0"></span>
+                                            <span class="rating-star mdi mdi-numeric-1-circle-outline text-xl" data-value="1"></span>
+                                            <span class="rating-star mdi mdi-numeric-2-circle-outline text-xl" data-value="2"></span>
+                                        </div>
+                                        <input type="text" id="note-intent_type" placeholder="备注" class="w-full px-2 py-1 text-xs border rounded">
+                                    </div>
+                                </div>
+                                <div class="grid grid-cols-3 gap-3">
+                                    <div class="border rounded p-2">
+                                        <div class="text-xs text-gray-500 mb-1 text-center">主题一致性</div>
+                                        <div class="rating-group flex justify-center mb-2" data-dimension="topic_consistency" data-mode="profile">
+                                            <span class="rating-star mdi mdi-numeric-0-circle-outline text-xl" data-value="0"></span>
+                                            <span class="rating-star mdi mdi-numeric-1-circle-outline text-xl" data-value="1"></span>
+                                            <span class="rating-star mdi mdi-numeric-2-circle-outline text-xl" data-value="2"></span>
+                                        </div>
+                                        <input type="text" id="note-topic_consistency" placeholder="备注" class="w-full px-2 py-1 text-xs border rounded">
+                                    </div>
+                                    <div class="border rounded p-2">
+                                        <div class="text-xs text-gray-500 mb-1 text-center">核心观点</div>
+                                        <div class="rating-group flex justify-center mb-2" data-dimension="core_claim" data-mode="profile">
+                                            <span class="rating-star mdi mdi-numeric-0-circle-outline text-xl" data-value="0"></span>
+                                            <span class="rating-star mdi mdi-numeric-1-circle-outline text-xl" data-value="1"></span>
+                                            <span class="rating-star mdi mdi-numeric-2-circle-outline text-xl" data-value="2"></span>
+                                        </div>
+                                        <input type="text" id="note-core_claim" placeholder="备注" class="w-full px-2 py-1 text-xs border rounded">
+                                    </div>
+                                    <div class="border rounded p-2">
+                                        <div class="text-xs text-gray-500 mb-1 text-center">情感类型</div>
+                                        <div class="rating-group flex justify-center mb-2" data-dimension="emotion_type" data-mode="profile">
+                                            <span class="rating-star mdi mdi-numeric-0-circle-outline text-xl" data-value="0"></span>
+                                            <span class="rating-star mdi mdi-numeric-1-circle-outline text-xl" data-value="1"></span>
+                                            <span class="rating-star mdi mdi-numeric-2-circle-outline text-xl" data-value="2"></span>
+                                        </div>
+                                        <input type="text" id="note-emotion_type" placeholder="备注" class="w-full px-2 py-1 text-xs border rounded">
+                                    </div>
                                 </div>
                             </div>
                             <!-- 操作按钮 -->
