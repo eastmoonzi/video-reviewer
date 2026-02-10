@@ -548,13 +548,14 @@ function selectTask(index) {
     document.getElementById('current-task-label').textContent = `任务 ${index + 1}/${tasks.length}` + 
         (groupCount > 1 ? ` (${groupCount}组数据)` : '');
 
-    // 加载视频 - 添加详细调试
-    console.log('============ 加载视频 ============');
-    console.log('任务数据:', task);
-    console.log('任务video_url字段:', task.video_url);
-    console.log('任务video_url长度:', task.video_url?.length);
-    elements.videoPlayer.src = task.video_url;
-    console.log('设置后video.src:', elements.videoPlayer.src);
+    // 加载视频
+    // 自动将 HTTP URL 转换为 HTTPS（避免混合内容问题）
+    let videoUrl = task.video_url || '';
+    if (videoUrl.startsWith('http://')) {
+        videoUrl = videoUrl.replace('http://', 'https://');
+        console.log('视频URL已从HTTP转换为HTTPS');
+    }
+    elements.videoPlayer.src = videoUrl;
     elements.videoPlayer.load();
 
     // 渲染数据组切换器
