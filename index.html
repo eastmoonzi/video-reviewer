@@ -8,344 +8,600 @@
     <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css" rel="stylesheet">
     <style>
-        .tab-active { background-color: #3b82f6; color: white; }
-        .rating-star { cursor: pointer; transition: color 0.2s; }
-        .rating-star:hover { color: #fbbf24; }
-        .rating-star.active { color: #fbbf24; }
-        .timeline-segment { cursor: pointer; transition: opacity 0.2s; }
-        .timeline-segment:hover { opacity: 0.8; }
-        .keyframe-thumb { cursor: pointer; transition: transform 0.2s; }
-        .keyframe-thumb:hover { transform: scale(1.05); }
-        .json-tree { font-family: monospace; font-size: 13px; }
-        .json-key { color: #881391; }
-        .json-string { color: #0B7500; }
-        .json-number { color: #1A01CC; }
-        .json-boolean { color: #1A01CC; }
-        .task-item { transition: background-color 0.2s; }
-        .task-item:hover { background-color: #f3f4f6; }
-        .task-item.active { background-color: #dbeafe; border-left: 3px solid #3b82f6; }
-        /* 侧边栏折叠样式 */
-        #task-sidebar { transition: width 0.3s ease, margin-left 0.3s ease; }
-        #task-sidebar.collapsed { width: 0; margin-left: -1px; overflow: hidden; }
-        #sidebar-toggle { transition: transform 0.3s ease; }
-        #sidebar-toggle.collapsed { transform: rotate(180deg); }
+        /* The "Ive" Aesthetic: Reduction, Depth, and Fluidity */
+        :root {
+            --bg-color: #F2F2F7;
+            --card-bg: #FFFFFF;
+            --primary: #0071E3;
+            --text-primary: #1D1D1F;
+            --text-secondary: #86868B;
+            --divider: rgba(0, 0, 0, 0.05);
+        }
+
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif; 
+            background-color: var(--bg-color);
+            color: var(--text-primary);
+            letter-spacing: -0.01em;
+        }
+
+        /* Utils */
+        .glass-blur { background: rgba(255, 255, 255, 0.75); backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); }
+        .super-shadow { box-shadow: 0 12px 40px rgba(0, 0, 0, 0.08); }
+        .soft-shadow { box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04); }
+        
+        /* Layout Objects */
+        .ive-card {
+            background: var(--card-bg);
+            border-radius: 24px;
+            transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+        }
+        
+        /* Sidebar: The "Invisible" List */
+        .task-item { 
+            margin: 6px 12px; 
+            padding: 12px 16px; 
+            border-radius: 14px; 
+            font-size: 13px; 
+            font-weight: 500;
+            color: var(--text-secondary);
+            transition: all 0.2s ease;
+            display: flex;
+            align-items: center;
+        }
+        .task-item:hover { background: rgba(0,0,0,0.03); color: var(--text-primary); }
+        .task-item.active { 
+            background: var(--card-bg); 
+            color: var(--primary); 
+            box-shadow: 0 4px 12px rgba(0,0,0,0.06); 
+            transform: scale(1.02);
+        }
+        .task-item.active .text-gray-500 { color: var(--primary) !important; opacity: 0.7; }
+        
+        /* Video Player: The Hero Object */
+        .video-container {
+            border-radius: 24px;
+            overflow: hidden;
+            background: black;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.15); /* Cinematic shadow */
+            transition: all 0.3s ease;
+        }
+
+        /* Controls: Floating Capsules */
+        .control-pill {
+            background: rgba(255,255,255,0.9);
+            backdrop-filter: blur(10px);
+            border-radius: 999px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            border: 1px solid rgba(255,255,255,0.5);
+            transition: transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        .control-pill:active { transform: scale(0.95); }
+        
+        /* Segmented Control: iOS 13+ Style */
+        .ios-segment-bg {
+            background: rgba(118, 118, 128, 0.12);
+            border-radius: 9px;
+            padding: 2px;
+            display: inline-flex;
+            position: relative;
+        }
+        .mode-btn {
+            border-radius: 7px;
+            font-size: 13px;
+            font-weight: 500;
+            padding: 4px 16px;
+            color: var(--text-primary);
+            background: transparent;
+            transition: all 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+            position: relative;
+            z-index: 2;
+        }
+        .mode-btn.active {
+            background: #FFFFFF;
+            box-shadow: 0 3px 8px rgba(0,0,0,0.12), 0 3px 1px rgba(0,0,0,0.04);
+        }
+        
+        /* Rating Stars: Minimal & Fluid */
+        .rating-star { 
+            color: #AEAEB2; 
+            transition: color 0.3s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        .rating-star:hover { color: #FF9500; transform: scale(1.15); }
+        .rating-star.active { color: #FF9500; }
+        
+        /* Scrollbar hiding */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        /* Input Fields: Soft Surface */
+        .soft-input {
+            background: #F2F2F7;
+            border: none;
+            border-radius: 10px;
+            padding: 8px 12px;
+            font-size: 13px;
+            transition: background 0.2s;
+        }
+        .soft-input:focus { background: #E5E5EA; outline: none; }
+        
+        /* Tab Active State */
+        .tab-btn {
+            border-bottom: 2px solid transparent;
+        }
+        .tab-btn.tab-active {
+            color: #1D1D1F !important;
+            font-weight: 600;
+            border-bottom-color: #1D1D1F !important;
+        }
     </style>
 </head>
-<body class="bg-gray-100 min-h-screen">
-    <div id="app" class="flex h-screen">
-        <!-- 左侧任务列表 -->
-        <aside id="task-sidebar" class="w-72 bg-white shadow-lg flex flex-col">
-            <div class="p-4 border-b">
-                <h2 class="text-lg font-bold text-gray-800 flex items-center">
-                    <span class="mdi mdi-clipboard-list-outline mr-2"></span>
-                    任务队列
-                </h2>
-                <div class="mt-3 flex gap-2">
-                    <button onclick="importTasks()" class="flex-1 px-3 py-1.5 bg-blue-500 text-white text-sm rounded hover:bg-blue-600">
-                        <span class="mdi mdi-import"></span> 导入
-                    </button>
-                    <button onclick="exportResults()" class="flex-1 px-3 py-1.5 bg-green-500 text-white text-sm rounded hover:bg-green-600">
-                        <span class="mdi mdi-export"></span> 导出
-                    </button>
-                </div>
-                <button onclick="clearAllTasks()" class="mt-2 w-full px-3 py-1.5 bg-red-500 text-white text-sm rounded hover:bg-red-600">
-                    <span class="mdi mdi-delete-sweep"></span> 清空任务
+<body class="h-screen w-screen overflow-hidden flex selection:bg-blue-100 selection:text-blue-900">
+
+    <!-- 1. The Navigation Layer (Sidebar) -->
+    <!-- Minimal, blending into background, no hard borders -->
+    <aside id="task-sidebar" class="w-64 h-full flex flex-col pt-8 pb-4 z-20 transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)]">
+        <!-- Brand / Header -->
+        <div class="px-6 mb-8 flex items-center justify-between">
+            <h1 class="text-xl font-bold tracking-tight text-black opacity-90">审查台</h1>
+            <div class="flex gap-2">
+                <button onclick="clearAllTasks()" class="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center text-red-500 hover:scale-105 transition-transform" title="清空任务">
+                    <span class="mdi mdi-delete-outline text-lg"></span>
+                </button>
+                <button onclick="exportResults()" class="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center text-green-600 hover:scale-105 transition-transform" title="导出结果">
+                    <span class="mdi mdi-download text-lg"></span>
+                </button>
+                <button onclick="importTasks()" class="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center text-blue-600 hover:scale-105 transition-transform" title="导入任务">
+                    <span class="mdi mdi-plus text-lg"></span>
                 </button>
             </div>
-            <!-- 进度统计 -->
-            <div class="p-4 border-b bg-gray-50">
-                <div class="flex justify-between text-sm text-gray-600 mb-2">
-                    <span>审查进度</span>
-                    <span id="progress-text">0/0</span>
-                </div>
-                <div class="w-full bg-gray-200 rounded-full h-2">
-                    <div id="progress-bar" class="bg-blue-500 h-2 rounded-full transition-all" style="width: 0%"></div>
-                </div>
-                <div class="flex justify-between mt-2 text-xs">
-                    <span class="text-green-600"><span id="completed-count">0</span> 已完成</span>
-                    <span class="text-yellow-600"><span id="pending-count">0</span> 待审查</span>
-                </div>
+        </div>
+        
+        <!-- Progress Ring (Mini) -->
+        <div class="px-6 mb-6">
+            <div class="flex justify-between text-xs font-medium text-gray-400 mb-2 tracking-wide">进度</div>
+            <div class="h-1 w-full bg-gray-200 rounded-full overflow-hidden">
+                <div id="progress-bar" class="h-full bg-black rounded-full transition-all duration-700 w-0"></div>
             </div>
-            <!-- 任务列表 -->
-            <div id="task-list" class="flex-1 overflow-y-auto">
+            <div class="mt-2 text-xs text-gray-500 text-right"><span id="progress-text">0/0</span></div>
+        </div>
+
+        <!-- Task List: Floating Items -->
+        <div id="task-list" class="flex-1 overflow-y-auto px-2 no-scrollbar space-y-1">
                 <div class="p-8 text-center text-gray-400">
                     <span class="mdi mdi-inbox-outline text-4xl"></span>
                     <p class="mt-2">暂无任务</p>
-                    <p class="text-sm">点击"导入"添加任务</p>
+                    <p class="text-sm">点击"+"导入任务</p>
                 </div>
             </div>
         </aside>
 
-        <!-- 主内容区 -->
-        <main class="flex-1 flex flex-col overflow-hidden">
-            <!-- 顶部导航 -->
-            <header class="bg-white shadow px-6 py-3 flex items-center justify-between">
-                <div class="flex items-center">
-                    <button id="sidebar-toggle" onclick="toggleSidebar()" class="mr-3 p-1 text-gray-500 hover:text-blue-500 hover:bg-gray-100 rounded" title="收起/展开任务列表">
-                        <span class="mdi mdi-menu-open text-xl"></span>
-                    </button>
-                    <span class="mdi mdi-video-check text-2xl text-blue-500 mr-2"></span>
-                    <h1 class="text-xl font-bold text-gray-800">视频审查工作台</h1>
-                    <!-- 审核模式切换 -->
-                    <div class="ml-6 flex bg-gray-100 rounded-lg p-1">
-                        <button id="mode-segment" onclick="switchReviewMode('segment')" class="mode-btn px-3 py-1 text-sm rounded-md bg-blue-500 text-white">
-                            分段语义详情
-                        </button>
-                        <button id="mode-profile" onclick="switchReviewMode('profile')" class="mode-btn px-3 py-1 text-sm rounded-md text-gray-600 hover:bg-gray-200">
-                            全篇语义画像
-                        </button>
-                    </div>
-                </div>
-                <div class="flex items-center gap-4">
-                    <span id="current-task-label" class="text-sm text-gray-500">未选择任务</span>
-                    <button onclick="showHelp()" class="text-gray-400 hover:text-gray-600">
-                        <span class="mdi mdi-help-circle text-xl"></span>
-                    </button>
-                </div>
-            </header>
+    <!-- 2. The Workspace (Main Content) -->
+    <main class="flex-1 flex flex-col h-full relative z-10 overflow-hidden bg-white/50 backdrop-blur-xl rounded-l-[40px] shadow-2xl ml-2 border border-white/40">
+        
+        <!-- Top Toolbar: Compact -->
+        <div class="flex items-center justify-center px-6 py-2 z-30 border-b border-gray-100/50">
+            <!-- Mode Switcher (Centered) -->
+            <div class="shadow-sm ios-segment-bg">
+                <button id="mode-segment" onclick="switchReviewMode('segment')" class="mode-btn active">分段详情</button>
+                <button id="mode-profile" onclick="switchReviewMode('profile')" class="mode-btn">全篇画像</button>
+            </div>
+            <!-- Help -->
+            <button onclick="showHelp()" class="absolute right-6 w-7 h-7 rounded-full bg-white/80 hover:bg-white shadow-sm flex items-center justify-center text-gray-400 transition-all">
+                <span class="mdi mdi-help text-base"></span>
+            </button>
+        </div>
 
-            <!-- 工作区 -->
-            <div id="workspace" class="flex-1 flex overflow-hidden">
-                <!-- 无任务占位 -->
-                <div id="empty-state" class="flex-1 flex items-center justify-center">
-                    <div class="text-center text-gray-400">
-                        <span class="mdi mdi-video-off-outline text-6xl"></span>
-                        <p class="mt-4 text-lg">请从左侧选择一个任务开始审查</p>
-                        <p class="text-sm mt-2">或点击"导入"按钮添加新任务</p>
-                    </div>
+        <!-- Main Content Area -->
+        <div id="workspace" class="flex-1 flex overflow-hidden p-4 pb-40 gap-6">
+            
+            <!-- Empty State -->
+             <div id="empty-state" class="flex-1 flex flex-col items-center justify-center text-center">
+                <div class="w-32 h-32 bg-gray-100 rounded-full flex items-center justify-center mb-8 animate-pulse">
+                    <span class="mdi mdi-movie-open text-5xl text-gray-300"></span>
                 </div>
+                <h2 class="text-3xl font-semibold text-gray-900 mb-3 tracking-tight">准备就绪</h2>
+                <p class="text-lg text-gray-500 mb-8 max-w-md font-light">从侧边栏选择任务开始审查</p>
+                <button onclick="importTasks()" class="control-pill px-8 py-3 text-sm font-semibold text-gray-800 hover:bg-white hover:scale-105">
+                    导入任务
+                </button>
+            </div>
 
-                <!-- 审查工作台（默认隐藏） -->
-                <div id="review-workspace" class="flex-1 flex flex-col hidden">
-                    <div class="flex-1 flex overflow-hidden">
-                        <!-- 左侧：视频播放区 -->
-                        <div class="w-1/2 p-4 flex flex-col">
-                            <div class="bg-black rounded-lg overflow-hidden flex-1 relative">
-                                <video id="video-player" class="absolute inset-0 w-full h-full object-contain" controls playsinline preload="auto" crossorigin="anonymous" referrerpolicy="no-referrer"></video>
+            <!-- Review Interface -->
+            <div id="review-workspace" class="hidden flex-1 flex gap-8 min-h-0 w-full">
+                
+                <!-- Center: The Cinema (Video) -->
+                <div class="flex-1 flex flex-col min-w-0">
+                    <div class="video-container flex-1 relative group bg-black rounded-[32px] overflow-hidden">
+                        <video id="video-player" class="w-full h-full object-contain" controls playsinline preload="auto"></video>
+                    </div>
+
+                    <!-- Floating Controls below video -->
+                    <div class="h-24 flex items-center justify-between px-4">
+                        <div class="flex items-center gap-4">
+                            <button onclick="seekRelative(-5)" class="control-pill w-12 h-12 flex items-center justify-center text-gray-700 hover:text-black">
+                                <span class="mdi mdi-rewind-5 text-xl"></span>
+                            </button>
+                            <button onclick="togglePlay()" class="control-pill w-16 h-16 flex items-center justify-center bg-black text-white border-none hover:scale-105 shadow-xl">
+                                <span id="play-btn-icon" class="mdi mdi-play text-3xl ml-1"></span>
+                            </button>
+                            <button onclick="seekRelative(5)" class="control-pill w-12 h-12 flex items-center justify-center text-gray-700 hover:text-black">
+                                <span class="mdi mdi-fast-forward-5 text-xl"></span>
+                            </button>
+                        </div>
+                        
+                        <!-- Timeline Info -->
+                        <div class="flex-1 mx-8">
+                             <div id="timeline" class="h-1.5 bg-gray-200 rounded-full relative cursor-pointer group hover:h-2 transition-all" onclick="seekToPosition(event)">
+                                <div id="timeline-progress" class="h-full bg-black rounded-full absolute left-0" style="width: 0%"></div>
+                                <div id="timeline-segments" class="absolute inset-0"></div>
+                                <div id="timeline-markers" class="absolute inset-0 flex items-center"></div>
                             </div>
-                            <!-- 视频控制 -->
-                            <div class="mt-3 flex items-center gap-3">
-                                <button onclick="seekRelative(-5)" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300 text-sm">
-                                    <span class="mdi mdi-rewind-5"></span> -5s
-                                </button>
-                                <button onclick="seekRelative(-1)" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300 text-sm">
-                                    -1s
-                                </button>
-                                <button onclick="togglePlay()" class="px-4 py-1 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm">
-                                    <span id="play-btn-icon" class="mdi mdi-play"></span>
-                                </button>
-                                <button onclick="seekRelative(1)" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300 text-sm">
-                                    +1s
-                                </button>
-                                <button onclick="seekRelative(5)" class="px-3 py-1 bg-gray-200 rounded hover:bg-gray-300 text-sm">
-                                    +5s <span class="mdi mdi-fast-forward-5"></span>
-                                </button>
-                                <select id="playback-rate" onchange="changePlaybackRate()" class="ml-auto px-2 py-1 border rounded text-sm">
-                                    <option value="0.5">0.5x</option>
-                                    <option value="0.75">0.75x</option>
-                                    <option value="1" selected>1x</option>
-                                    <option value="1.25">1.25x</option>
-                                    <option value="1.5">1.5x</option>
-                                    <option value="2">2x</option>
-                                </select>
-                            </div>
-                            <!-- 时间轴 -->
-                            <div class="mt-3">
-                                <div class="text-sm text-gray-600 mb-1 flex justify-between">
-                                    <span>时间轴</span>
-                                    <span id="time-display">00:00 / 00:00</span>
-                                </div>
-                                <div id="timeline" class="h-8 bg-gray-200 rounded relative cursor-pointer" onclick="seekToPosition(event)">
-                                    <div id="timeline-progress" class="h-full bg-blue-400 rounded-l absolute left-0" style="width: 0%"></div>
-                                    <div id="timeline-segments" class="absolute inset-0"></div>
-                                </div>
-                                <div id="timeline-markers" class="h-4 relative mt-1"></div>
+                            <div class="flex justify-between mt-2 text-xs font-medium text-gray-400 font-mono">
+                                <span>00:00</span>
+                                <span id="time-display">00:00 / 00:00</span>
                             </div>
                         </div>
 
-                        <!-- 右侧：模型输出面板 -->
-                        <div class="w-1/2 p-4 flex flex-col border-l overflow-hidden">
-                            <!-- 数据组切换器 -->
-                            <div id="output-group-switcher" class="mb-3 hidden flex-shrink-0">
-                                <div class="flex items-center gap-2 p-2 bg-blue-50 rounded">
-                                    <span class="text-sm text-gray-600"><span class="mdi mdi-database"></span> 数据组:</span>
-                                    <div id="output-group-buttons" class="flex gap-1 flex-wrap"></div>
-                                </div>
-                            </div>
-                            <!-- 分段语义详情模式 - Tab切换 -->
-                            <div id="segment-mode-content" class="flex flex-col flex-1 overflow-hidden">
-                                <div class="flex border-b mb-3 flex-shrink-0">
-                                    <button onclick="switchTab('text')" class="tab-btn px-4 py-2 text-sm font-medium tab-active rounded-t" data-tab="text">
-                                        <span class="mdi mdi-text"></span> 文本理解
-                                    </button>
-                                    <button onclick="switchTab('visual')" class="tab-btn px-4 py-2 text-sm font-medium hover:bg-gray-100 rounded-t" data-tab="visual">
-                                        <span class="mdi mdi-eye"></span> 视觉理解
-                                    </button>
-                                    <button onclick="switchTab('keyframe')" class="tab-btn px-4 py-2 text-sm font-medium hover:bg-gray-100 rounded-t" data-tab="keyframe">
-                                        <span class="mdi mdi-image-multiple"></span> 关键帧
-                                    </button>
-                                </div>
-                                <!-- Tab内容 -->
-                                <div id="tab-content" class="flex-1 overflow-y-auto">
-                                    <!-- 文本理解 -->
-                                    <div id="tab-text" class="tab-panel">
-                                        <div id="text-content" class="space-y-3"></div>
-                                    </div>
-                                    <!-- 视觉理解 -->
-                                    <div id="tab-visual" class="tab-panel hidden">
-                                        <div id="visual-content" class="space-y-3"></div>
-                                    </div>
-                                    <!-- 关键帧 -->
-                                    <div id="tab-keyframe" class="tab-panel hidden">
-                                        <div id="keyframe-content" class="space-y-2"></div>
-                                    </div>
-                                </div>
+                        <!-- Speed -->
+                         <select id="playback-rate" onchange="changePlaybackRate()" class="control-pill px-4 py-2 text-xs font-semibold appearance-none text-center w-20 cursor-pointer">
+                            <option value="0.5">0.5×</option>
+                            <option value="1" selected>1×</option>
+                            <option value="1.5">1.5×</option>
+                            <option value="2">2×</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Right: The Inspector (Data) -->
+                <div class="w-[420px] flex flex-col h-full pb-2">
+                    <div class="ive-card flex-1 flex flex-col overflow-hidden shadow-xl border border-white/50 bg-white/80 backdrop-blur-md">
+                        <!-- Data Group Pills -->
+                        <div id="output-group-switcher" class="hidden flex-shrink-0 px-6 pt-6 pb-2">
+                            <div class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3 pl-1">Data Model</div>
+                            <div id="output-group-buttons" class="flex gap-2 flex-wrap"></div>
+                        </div>
+
+                        <!-- Content Tabs (Text only) -->
+                        <div id="segment-mode-content" class="flex flex-col flex-1 overflow-hidden">
+                             <div class="flex px-6 border-b border-gray-100 flex-shrink-0 gap-6">
+                                <button onclick="switchTab('text')" class="tab-btn tab-active py-4 text-sm font-semibold text-black border-b-2 border-black" data-tab="text">文本</button>
+                                <button onclick="switchTab('visual')" class="tab-btn py-4 text-sm font-medium text-gray-400 hover:text-gray-600 transition-colors border-b-2 border-transparent" data-tab="visual">视觉</button>
+                                <button onclick="switchTab('keyframe')" class="tab-btn py-4 text-sm font-medium text-gray-400 hover:text-gray-600 transition-colors border-b-2 border-transparent" data-tab="keyframe">关键帧</button>
                             </div>
                             
-                            <!-- 全篇语义画像模式 - 内容展示 -->
-                            <div id="profile-mode-content" class="hidden flex flex-col flex-1 overflow-hidden">
-                                <div id="profile-content" class="space-y-3 flex-1 overflow-y-auto pr-2"></div>
+                            <div id="tab-content" class="flex-1 overflow-y-auto p-6 no-scrollbar mask-image-gradient">
+                                <div id="tab-text" class="tab-panel"><div id="text-content" class="space-y-6 text-sm leading-relaxed text-gray-600"></div></div>
+                                <div id="tab-visual" class="tab-panel hidden"><div id="visual-content" class="space-y-6 text-sm leading-relaxed text-gray-600"></div></div>
+                                <div id="tab-keyframe" class="tab-panel hidden"><div id="keyframe-content" class="space-y-4"></div></div>
                             </div>
                         </div>
-                    </div>
 
-                    <!-- 底部：打分区 -->
-                    <div id="rating-section" class="bg-white border-t transition-all duration-300">
-                        <!-- 折叠按钮 -->
-                        <div class="flex items-center justify-between px-4 py-2 border-b cursor-pointer hover:bg-gray-50" onclick="toggleRatingPanel()">
-                            <div class="flex items-center text-sm text-gray-600">
-                                <span class="mdi mdi-star-box mr-2"></span>
-                                <span>评分面板</span>
-                            </div>
-                            <span id="rating-toggle-icon" class="mdi mdi-chevron-down text-gray-400 transition-transform duration-300"></span>
-                        </div>
-                        <!-- 可折叠内容 -->
-                        <div id="rating-panel-content" class="p-4 transition-all duration-300 overflow-hidden">
-                        <div class="flex flex-col gap-3">
-                            <!-- 分段语义详情 - 四个维度打分（1-3分） -->
-                            <div id="segment-rating-panel" class="grid grid-cols-4 gap-4">
-                                <div class="border rounded p-2">
-                                    <div class="text-xs text-gray-500 mb-1 text-center">时间段切分</div>
-                                    <div class="rating-group flex justify-center mb-2" data-dimension="time" data-mode="segment">
-                                        <span class="rating-star mdi mdi-star-outline text-xl" data-value="1"></span>
-                                        <span class="rating-star mdi mdi-star-outline text-xl" data-value="2"></span>
-                                        <span class="rating-star mdi mdi-star-outline text-xl" data-value="3"></span>
-                                    </div>
-                                    <input type="text" id="note-time" placeholder="备注" class="w-full px-2 py-1 text-xs border rounded">
-                                </div>
-                                <div class="border rounded p-2">
-                                    <div class="text-xs text-gray-500 mb-1 text-center">文本理解</div>
-                                    <div class="rating-group flex justify-center mb-2" data-dimension="text" data-mode="segment">
-                                        <span class="rating-star mdi mdi-star-outline text-xl" data-value="1"></span>
-                                        <span class="rating-star mdi mdi-star-outline text-xl" data-value="2"></span>
-                                        <span class="rating-star mdi mdi-star-outline text-xl" data-value="3"></span>
-                                    </div>
-                                    <input type="text" id="note-text" placeholder="备注" class="w-full px-2 py-1 text-xs border rounded">
-                                </div>
-                                <div class="border rounded p-2">
-                                    <div class="text-xs text-gray-500 mb-1 text-center">视觉理解</div>
-                                    <div class="rating-group flex justify-center mb-2" data-dimension="visual" data-mode="segment">
-                                        <span class="rating-star mdi mdi-star-outline text-xl" data-value="1"></span>
-                                        <span class="rating-star mdi mdi-star-outline text-xl" data-value="2"></span>
-                                        <span class="rating-star mdi mdi-star-outline text-xl" data-value="3"></span>
-                                    </div>
-                                    <input type="text" id="note-visual" placeholder="备注" class="w-full px-2 py-1 text-xs border rounded">
-                                </div>
-                                <div class="border rounded p-2">
-                                    <div class="text-xs text-gray-500 mb-1 text-center">关键帧提取</div>
-                                    <div class="rating-group flex justify-center mb-2" data-dimension="keyframe" data-mode="segment">
-                                        <span class="rating-star mdi mdi-star-outline text-xl" data-value="1"></span>
-                                        <span class="rating-star mdi mdi-star-outline text-xl" data-value="2"></span>
-                                        <span class="rating-star mdi mdi-star-outline text-xl" data-value="3"></span>
-                                    </div>
-                                    <input type="text" id="note-keyframe" placeholder="备注" class="w-full px-2 py-1 text-xs border rounded">
-                                </div>
-                            </div>
-                            
-                            <!-- 全篇语义画像 - 七个维度打分（0-2分） -->
-                            <div id="profile-rating-panel" class="hidden">
-                                <div class="grid grid-cols-4 gap-3 mb-3">
-                                    <div class="border rounded p-2">
-                                        <div class="text-xs text-gray-500 mb-1 text-center">叙事类型</div>
-                                        <div class="rating-group flex justify-center mb-2" data-dimension="narrative_type" data-mode="profile">
-                                            <span class="rating-star mdi mdi-numeric-0-circle-outline text-xl" data-value="0"></span>
-                                            <span class="rating-star mdi mdi-numeric-1-circle-outline text-xl" data-value="1"></span>
-                                            <span class="rating-star mdi mdi-numeric-2-circle-outline text-xl" data-value="2"></span>
-                                        </div>
-                                        <input type="text" id="note-narrative_type" placeholder="备注" class="w-full px-2 py-1 text-xs border rounded">
-                                    </div>
-                                    <div class="border rounded p-2">
-                                        <div class="text-xs text-gray-500 mb-1 text-center">画面类型</div>
-                                        <div class="rating-group flex justify-center mb-2" data-dimension="visual_type" data-mode="profile">
-                                            <span class="rating-star mdi mdi-numeric-0-circle-outline text-xl" data-value="0"></span>
-                                            <span class="rating-star mdi mdi-numeric-1-circle-outline text-xl" data-value="1"></span>
-                                            <span class="rating-star mdi mdi-numeric-2-circle-outline text-xl" data-value="2"></span>
-                                        </div>
-                                        <input type="text" id="note-visual_type" placeholder="备注" class="w-full px-2 py-1 text-xs border rounded">
-                                    </div>
-                                    <div class="border rounded p-2">
-                                        <div class="text-xs text-gray-500 mb-1 text-center">内容总结</div>
-                                        <div class="rating-group flex justify-center mb-2" data-dimension="summary" data-mode="profile">
-                                            <span class="rating-star mdi mdi-numeric-0-circle-outline text-xl" data-value="0"></span>
-                                            <span class="rating-star mdi mdi-numeric-1-circle-outline text-xl" data-value="1"></span>
-                                            <span class="rating-star mdi mdi-numeric-2-circle-outline text-xl" data-value="2"></span>
-                                        </div>
-                                        <input type="text" id="note-summary" placeholder="备注" class="w-full px-2 py-1 text-xs border rounded">
-                                    </div>
-                                    <div class="border rounded p-2">
-                                        <div class="text-xs text-gray-500 mb-1 text-center">创作意图</div>
-                                        <div class="rating-group flex justify-center mb-2" data-dimension="intent_type" data-mode="profile">
-                                            <span class="rating-star mdi mdi-numeric-0-circle-outline text-xl" data-value="0"></span>
-                                            <span class="rating-star mdi mdi-numeric-1-circle-outline text-xl" data-value="1"></span>
-                                            <span class="rating-star mdi mdi-numeric-2-circle-outline text-xl" data-value="2"></span>
-                                        </div>
-                                        <input type="text" id="note-intent_type" placeholder="备注" class="w-full px-2 py-1 text-xs border rounded">
-                                    </div>
-                                </div>
-                                <div class="grid grid-cols-3 gap-3">
-                                    <div class="border rounded p-2">
-                                        <div class="text-xs text-gray-500 mb-1 text-center">主题一致性</div>
-                                        <div class="rating-group flex justify-center mb-2" data-dimension="topic_consistency" data-mode="profile">
-                                            <span class="rating-star mdi mdi-numeric-0-circle-outline text-xl" data-value="0"></span>
-                                            <span class="rating-star mdi mdi-numeric-1-circle-outline text-xl" data-value="1"></span>
-                                            <span class="rating-star mdi mdi-numeric-2-circle-outline text-xl" data-value="2"></span>
-                                        </div>
-                                        <input type="text" id="note-topic_consistency" placeholder="备注" class="w-full px-2 py-1 text-xs border rounded">
-                                    </div>
-                                    <div class="border rounded p-2">
-                                        <div class="text-xs text-gray-500 mb-1 text-center">核心观点</div>
-                                        <div class="rating-group flex justify-center mb-2" data-dimension="core_claim" data-mode="profile">
-                                            <span class="rating-star mdi mdi-numeric-0-circle-outline text-xl" data-value="0"></span>
-                                            <span class="rating-star mdi mdi-numeric-1-circle-outline text-xl" data-value="1"></span>
-                                            <span class="rating-star mdi mdi-numeric-2-circle-outline text-xl" data-value="2"></span>
-                                        </div>
-                                        <input type="text" id="note-core_claim" placeholder="备注" class="w-full px-2 py-1 text-xs border rounded">
-                                    </div>
-                                    <div class="border rounded p-2">
-                                        <div class="text-xs text-gray-500 mb-1 text-center">情感类型</div>
-                                        <div class="rating-group flex justify-center mb-2" data-dimension="emotion_type" data-mode="profile">
-                                            <span class="rating-star mdi mdi-numeric-0-circle-outline text-xl" data-value="0"></span>
-                                            <span class="rating-star mdi mdi-numeric-1-circle-outline text-xl" data-value="1"></span>
-                                            <span class="rating-star mdi mdi-numeric-2-circle-outline text-xl" data-value="2"></span>
-                                        </div>
-                                        <input type="text" id="note-emotion_type" placeholder="备注" class="w-full px-2 py-1 text-xs border rounded">
-                                    </div>
-                                </div>
-                            </div>
-                            <!-- 操作按钮 -->
-                            <div class="flex justify-end gap-2">
-                                <button onclick="skipTask()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300">
-                                    <span class="mdi mdi-skip-next"></span> 跳过
-                                </button>
-                                <button onclick="submitReview()" class="px-6 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">
-                                    <span class="mdi mdi-check"></span> 提交并下一条
-                                </button>
-                            </div>
+                        <!-- Profile Content -->
+                        <div id="profile-mode-content" class="hidden flex flex-col flex-1 overflow-hidden p-6">
+                            <div id="profile-content" class="space-y-6 overflow-y-auto no-scrollbar pb-20"></div>
                         </div>
                     </div>
                 </div>
             </div>
-        </main>
+        </div>
+
+        <!-- Bottom: The Action Dock - Rating with Inline Notes (HIDDEN - Using fixed dock outside main) -->
+        <div id="rating-section" class="hidden absolute bottom-2 left-1/2 transform -translate-x-1/2 z-50 w-[calc(100%-300px)] max-w-5xl">
+            <div class="glass-blur shadow-2xl rounded-2xl border border-white/30 ring-1 ring-black/5 p-4">
+                
+                <!-- Segment Ratings - Grid with Inline Notes -->
+                <div id="segment-rating-panel" class="flex items-center gap-4">
+                    <div class="grid grid-cols-4 gap-3 flex-1">
+                        <div class="flex flex-col gap-1">
+                            <div class="flex items-center justify-between">
+                                <span class="text-[10px] font-semibold text-gray-500 uppercase">时间切分</span>
+                                <div class="rating-group flex gap-0.5" data-dimension="time" data-mode="segment">
+                                    <span class="rating-star mdi mdi-star text-base cursor-pointer" data-value="1"></span>
+                                    <span class="rating-star mdi mdi-star text-base cursor-pointer" data-value="2"></span>
+                                    <span class="rating-star mdi mdi-star text-base cursor-pointer" data-value="3"></span>
+                                </div>
+                            </div>
+                            <input type="text" id="note-time" placeholder="备注..." class="soft-input text-xs py-1">
+                        </div>
+                        <div class="flex flex-col gap-1">
+                            <div class="flex items-center justify-between">
+                                <span class="text-[10px] font-semibold text-gray-500 uppercase">文本理解</span>
+                                <div class="rating-group flex gap-0.5" data-dimension="text" data-mode="segment">
+                                    <span class="rating-star mdi mdi-star text-base cursor-pointer" data-value="1"></span>
+                                    <span class="rating-star mdi mdi-star text-base cursor-pointer" data-value="2"></span>
+                                    <span class="rating-star mdi mdi-star text-base cursor-pointer" data-value="3"></span>
+                                </div>
+                            </div>
+                            <input type="text" id="note-text" placeholder="备注..." class="soft-input text-xs py-1">
+                        </div>
+                        <div class="flex flex-col gap-1">
+                            <div class="flex items-center justify-between">
+                                <span class="text-[10px] font-semibold text-gray-500 uppercase">视觉理解</span>
+                                <div class="rating-group flex gap-0.5" data-dimension="visual" data-mode="segment">
+                                    <span class="rating-star mdi mdi-star text-base cursor-pointer" data-value="1"></span>
+                                    <span class="rating-star mdi mdi-star text-base cursor-pointer" data-value="2"></span>
+                                    <span class="rating-star mdi mdi-star text-base cursor-pointer" data-value="3"></span>
+                                </div>
+                            </div>
+                            <input type="text" id="note-visual" placeholder="备注..." class="soft-input text-xs py-1">
+                        </div>
+                        <div class="flex flex-col gap-1">
+                            <div class="flex items-center justify-between">
+                                <span class="text-[10px] font-semibold text-gray-500 uppercase">关键帧</span>
+                                <div class="rating-group flex gap-0.5" data-dimension="keyframe" data-mode="segment">
+                                    <span class="rating-star mdi mdi-star text-base cursor-pointer" data-value="1"></span>
+                                    <span class="rating-star mdi mdi-star text-base cursor-pointer" data-value="2"></span>
+                                    <span class="rating-star mdi mdi-star text-base cursor-pointer" data-value="3"></span>
+                                </div>
+                            </div>
+                            <input type="text" id="note-keyframe" placeholder="备注..." class="soft-input text-xs py-1">
+                        </div>
+                    </div>
+                    <!-- Actions -->
+                    <div class="flex items-center gap-2 pl-4 border-l border-gray-200">
+                        <button onclick="skipTask()" class="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-800 hover:bg-black/5 rounded-lg transition-colors">
+                            跳过
+                        </button>
+                        <button onclick="submitReview()" class="px-4 py-1.5 bg-black text-white text-xs font-semibold rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-1 active:scale-95">
+                            <span>提交</span>
+                            <span class="mdi mdi-arrow-right text-sm"></span>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Profile Ratings - Compact Single Row (Hidden by default) -->
+                <div id="profile-rating-panel" class="hidden flex items-center gap-4">
+                    <div class="flex items-center gap-2 flex-1 overflow-x-auto no-scrollbar">
+                        <div class="flex flex-col gap-0.5 min-w-[90px]">
+                            <div class="flex items-center justify-between gap-1">
+                                <span class="text-[9px] font-semibold text-gray-500">叙事</span>
+                                <div class="rating-group flex" data-dimension="narrative_type" data-mode="profile">
+                                    <span class="rating-star mdi mdi-numeric-0-circle-outline text-xs cursor-pointer" data-value="0"></span>
+                                    <span class="rating-star mdi mdi-numeric-1-circle-outline text-xs cursor-pointer" data-value="1"></span>
+                                    <span class="rating-star mdi mdi-numeric-2-circle-outline text-xs cursor-pointer" data-value="2"></span>
+                                </div>
+                            </div>
+                            <input type="text" id="note-narrative_type" placeholder="备注" class="soft-input text-[10px] py-0.5 px-1.5">
+                        </div>
+                        <div class="flex flex-col gap-0.5 min-w-[90px]">
+                            <div class="flex items-center justify-between gap-1">
+                                <span class="text-[9px] font-semibold text-gray-500">画面</span>
+                                <div class="rating-group flex" data-dimension="visual_type" data-mode="profile">
+                                    <span class="rating-star mdi mdi-numeric-0-circle-outline text-xs cursor-pointer" data-value="0"></span>
+                                    <span class="rating-star mdi mdi-numeric-1-circle-outline text-xs cursor-pointer" data-value="1"></span>
+                                    <span class="rating-star mdi mdi-numeric-2-circle-outline text-xs cursor-pointer" data-value="2"></span>
+                                </div>
+                            </div>
+                            <input type="text" id="note-visual_type" placeholder="备注" class="soft-input text-[10px] py-0.5 px-1.5">
+                        </div>
+                        <div class="flex flex-col gap-0.5 min-w-[90px]">
+                            <div class="flex items-center justify-between gap-1">
+                                <span class="text-[9px] font-semibold text-gray-500">总结</span>
+                                <div class="rating-group flex" data-dimension="summary" data-mode="profile">
+                                    <span class="rating-star mdi mdi-numeric-0-circle-outline text-xs cursor-pointer" data-value="0"></span>
+                                    <span class="rating-star mdi mdi-numeric-1-circle-outline text-xs cursor-pointer" data-value="1"></span>
+                                    <span class="rating-star mdi mdi-numeric-2-circle-outline text-xs cursor-pointer" data-value="2"></span>
+                                </div>
+                            </div>
+                            <input type="text" id="note-summary" placeholder="备注" class="soft-input text-[10px] py-0.5 px-1.5">
+                        </div>
+                        <div class="flex flex-col gap-0.5 min-w-[90px]">
+                            <div class="flex items-center justify-between gap-1">
+                                <span class="text-[9px] font-semibold text-gray-500">意图</span>
+                                <div class="rating-group flex" data-dimension="intent_type" data-mode="profile">
+                                    <span class="rating-star mdi mdi-numeric-0-circle-outline text-xs cursor-pointer" data-value="0"></span>
+                                    <span class="rating-star mdi mdi-numeric-1-circle-outline text-xs cursor-pointer" data-value="1"></span>
+                                    <span class="rating-star mdi mdi-numeric-2-circle-outline text-xs cursor-pointer" data-value="2"></span>
+                                </div>
+                            </div>
+                            <input type="text" id="note-intent_type" placeholder="备注" class="soft-input text-[10px] py-0.5 px-1.5">
+                        </div>
+                        <div class="flex flex-col gap-0.5 min-w-[90px]">
+                            <div class="flex items-center justify-between gap-1">
+                                <span class="text-[9px] font-semibold text-gray-500">主题</span>
+                                <div class="rating-group flex" data-dimension="topic_consistency" data-mode="profile">
+                                    <span class="rating-star mdi mdi-numeric-0-circle-outline text-xs cursor-pointer" data-value="0"></span>
+                                    <span class="rating-star mdi mdi-numeric-1-circle-outline text-xs cursor-pointer" data-value="1"></span>
+                                    <span class="rating-star mdi mdi-numeric-2-circle-outline text-xs cursor-pointer" data-value="2"></span>
+                                </div>
+                            </div>
+                            <input type="text" id="note-topic_consistency" placeholder="备注" class="soft-input text-[10px] py-0.5 px-1.5">
+                        </div>
+                        <div class="flex flex-col gap-0.5 min-w-[90px]">
+                            <div class="flex items-center justify-between gap-1">
+                                <span class="text-[9px] font-semibold text-gray-500">观点</span>
+                                <div class="rating-group flex" data-dimension="core_claim" data-mode="profile">
+                                    <span class="rating-star mdi mdi-numeric-0-circle-outline text-xs cursor-pointer" data-value="0"></span>
+                                    <span class="rating-star mdi mdi-numeric-1-circle-outline text-xs cursor-pointer" data-value="1"></span>
+                                    <span class="rating-star mdi mdi-numeric-2-circle-outline text-xs cursor-pointer" data-value="2"></span>
+                                </div>
+                            </div>
+                            <input type="text" id="note-core_claim" placeholder="备注" class="soft-input text-[10px] py-0.5 px-1.5">
+                        </div>
+                        <div class="flex flex-col gap-0.5 min-w-[90px]">
+                            <div class="flex items-center justify-between gap-1">
+                                <span class="text-[9px] font-semibold text-gray-500">情感</span>
+                                <div class="rating-group flex" data-dimension="emotion_type" data-mode="profile">
+                                    <span class="rating-star mdi mdi-numeric-0-circle-outline text-xs cursor-pointer" data-value="0"></span>
+                                    <span class="rating-star mdi mdi-numeric-1-circle-outline text-xs cursor-pointer" data-value="1"></span>
+                                    <span class="rating-star mdi mdi-numeric-2-circle-outline text-xs cursor-pointer" data-value="2"></span>
+                                </div>
+                            </div>
+                            <input type="text" id="note-emotion_type" placeholder="备注" class="soft-input text-[10px] py-0.5 px-1.5">
+                        </div>
+                    </div>
+                    <!-- Actions -->
+                    <div class="flex items-center gap-2 pl-3 border-l border-gray-200 flex-shrink-0">
+                        <button onclick="skipTask()" class="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-800 hover:bg-black/5 rounded-lg transition-colors">
+                            跳过
+                        </button>
+                        <button onclick="submitReview()" class="px-4 py-1.5 bg-black text-white text-xs font-semibold rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-1 active:scale-95">
+                            <span>提交</span>
+                            <span class="mdi mdi-arrow-right text-sm"></span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Hidden note panel element for compatibility -->
+        <div id="note-panel" class="hidden">
+            <div id="segment-note-panel"></div>
+            <div id="profile-note-panel"></div>
+        </div>
+        <!-- End of Workspace Main -->
+    </main>
+
+    <!-- Bottom Rating Dock - Outside main to avoid overflow clipping -->
+    <div id="rating-dock" class="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-[100] w-[calc(100%-300px)] max-w-6xl">
+        <div class="glass-blur shadow-2xl rounded-3xl border border-white/30 ring-1 ring-black/5 p-5">
+            
+            <!-- Segment Ratings -->
+            <div id="segment-rating-dock" class="flex items-center gap-6">
+                <div class="grid grid-cols-4 gap-5 flex-1">
+                    <div class="flex flex-col gap-2">
+                        <div class="flex items-center justify-between">
+                            <span class="text-sm font-bold text-gray-700">时间切分</span>
+                            <div class="rating-group flex gap-1" data-dimension="time" data-mode="segment">
+                                <span class="rating-star mdi mdi-star text-2xl cursor-pointer" data-value="1"></span>
+                                <span class="rating-star mdi mdi-star text-2xl cursor-pointer" data-value="2"></span>
+                                <span class="rating-star mdi mdi-star text-2xl cursor-pointer" data-value="3"></span>
+                            </div>
+                        </div>
+                        <input type="text" id="dock-note-time" placeholder="备注..." class="soft-input text-base py-2">
+                    </div>
+                    <div class="flex flex-col gap-2">
+                        <div class="flex items-center justify-between">
+                            <span class="text-sm font-bold text-gray-700">文本理解</span>
+                            <div class="rating-group flex gap-1" data-dimension="text" data-mode="segment">
+                                <span class="rating-star mdi mdi-star text-2xl cursor-pointer" data-value="1"></span>
+                                <span class="rating-star mdi mdi-star text-2xl cursor-pointer" data-value="2"></span>
+                                <span class="rating-star mdi mdi-star text-2xl cursor-pointer" data-value="3"></span>
+                            </div>
+                        </div>
+                        <input type="text" id="dock-note-text" placeholder="备注..." class="soft-input text-base py-2">
+                    </div>
+                    <div class="flex flex-col gap-2">
+                        <div class="flex items-center justify-between">
+                            <span class="text-sm font-bold text-gray-700">视觉理解</span>
+                            <div class="rating-group flex gap-1" data-dimension="visual" data-mode="segment">
+                                <span class="rating-star mdi mdi-star text-2xl cursor-pointer" data-value="1"></span>
+                                <span class="rating-star mdi mdi-star text-2xl cursor-pointer" data-value="2"></span>
+                                <span class="rating-star mdi mdi-star text-2xl cursor-pointer" data-value="3"></span>
+                            </div>
+                        </div>
+                        <input type="text" id="dock-note-visual" placeholder="备注..." class="soft-input text-base py-2">
+                    </div>
+                    <div class="flex flex-col gap-2">
+                        <div class="flex items-center justify-between">
+                            <span class="text-sm font-bold text-gray-700">关键帧</span>
+                            <div class="rating-group flex gap-1" data-dimension="keyframe" data-mode="segment">
+                                <span class="rating-star mdi mdi-star text-2xl cursor-pointer" data-value="1"></span>
+                                <span class="rating-star mdi mdi-star text-2xl cursor-pointer" data-value="2"></span>
+                                <span class="rating-star mdi mdi-star text-2xl cursor-pointer" data-value="3"></span>
+                            </div>
+                        </div>
+                        <input type="text" id="dock-note-keyframe" placeholder="备注..." class="soft-input text-base py-2">
+                    </div>
+                </div>
+                <div class="flex items-center gap-3 pl-5 border-l-2 border-gray-300 flex-shrink-0">
+                    <button onclick="skipTask()" class="px-5 py-2.5 text-base font-medium text-gray-600 hover:text-gray-900 hover:bg-black/5 rounded-xl transition-colors">跳过</button>
+                    <button onclick="submitReview()" class="px-6 py-2.5 bg-black text-white text-base font-bold rounded-xl hover:bg-gray-800 transition-colors flex items-center gap-2 active:scale-95">
+                        <span>提交</span><span class="mdi mdi-arrow-right text-lg"></span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Profile Ratings -->
+            <div id="profile-rating-dock" class="hidden flex items-center gap-5">
+                <div class="flex items-center gap-4 flex-1 overflow-x-auto no-scrollbar">
+                    <div class="flex flex-col gap-1.5 min-w-[110px]">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-sm font-bold text-gray-700">叙事</span>
+                            <div class="rating-group flex" data-dimension="narrative_type" data-mode="profile">
+                                <span class="rating-star mdi mdi-numeric-0-circle-outline text-xl cursor-pointer" data-value="0"></span>
+                                <span class="rating-star mdi mdi-numeric-1-circle-outline text-xl cursor-pointer" data-value="1"></span>
+                                <span class="rating-star mdi mdi-numeric-2-circle-outline text-xl cursor-pointer" data-value="2"></span>
+                            </div>
+                        </div>
+                        <input type="text" id="dock-note-narrative_type" placeholder="备注" class="soft-input text-base py-1.5 px-2">
+                    </div>
+                    <div class="flex flex-col gap-1.5 min-w-[110px]">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-sm font-bold text-gray-700">画面</span>
+                            <div class="rating-group flex" data-dimension="visual_type" data-mode="profile">
+                                <span class="rating-star mdi mdi-numeric-0-circle-outline text-xl cursor-pointer" data-value="0"></span>
+                                <span class="rating-star mdi mdi-numeric-1-circle-outline text-xl cursor-pointer" data-value="1"></span>
+                                <span class="rating-star mdi mdi-numeric-2-circle-outline text-xl cursor-pointer" data-value="2"></span>
+                            </div>
+                        </div>
+                        <input type="text" id="dock-note-visual_type" placeholder="备注" class="soft-input text-base py-1.5 px-2">
+                    </div>
+                    <div class="flex flex-col gap-1.5 min-w-[110px]">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-sm font-bold text-gray-700">总结</span>
+                            <div class="rating-group flex" data-dimension="summary" data-mode="profile">
+                                <span class="rating-star mdi mdi-numeric-0-circle-outline text-xl cursor-pointer" data-value="0"></span>
+                                <span class="rating-star mdi mdi-numeric-1-circle-outline text-xl cursor-pointer" data-value="1"></span>
+                                <span class="rating-star mdi mdi-numeric-2-circle-outline text-xl cursor-pointer" data-value="2"></span>
+                            </div>
+                        </div>
+                        <input type="text" id="dock-note-summary" placeholder="备注" class="soft-input text-base py-1.5 px-2">
+                    </div>
+                    <div class="flex flex-col gap-1.5 min-w-[110px]">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-sm font-bold text-gray-700">意图</span>
+                            <div class="rating-group flex" data-dimension="intent_type" data-mode="profile">
+                                <span class="rating-star mdi mdi-numeric-0-circle-outline text-xl cursor-pointer" data-value="0"></span>
+                                <span class="rating-star mdi mdi-numeric-1-circle-outline text-xl cursor-pointer" data-value="1"></span>
+                                <span class="rating-star mdi mdi-numeric-2-circle-outline text-xl cursor-pointer" data-value="2"></span>
+                            </div>
+                        </div>
+                        <input type="text" id="dock-note-intent_type" placeholder="备注" class="soft-input text-base py-1.5 px-2">
+                    </div>
+                    <div class="flex flex-col gap-1.5 min-w-[110px]">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-sm font-bold text-gray-700">主题</span>
+                            <div class="rating-group flex" data-dimension="topic_consistency" data-mode="profile">
+                                <span class="rating-star mdi mdi-numeric-0-circle-outline text-xl cursor-pointer" data-value="0"></span>
+                                <span class="rating-star mdi mdi-numeric-1-circle-outline text-xl cursor-pointer" data-value="1"></span>
+                                <span class="rating-star mdi mdi-numeric-2-circle-outline text-xl cursor-pointer" data-value="2"></span>
+                            </div>
+                        </div>
+                        <input type="text" id="dock-note-topic_consistency" placeholder="备注" class="soft-input text-base py-1.5 px-2">
+                    </div>
+                    <div class="flex flex-col gap-1.5 min-w-[110px]">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-sm font-bold text-gray-700">观点</span>
+                            <div class="rating-group flex" data-dimension="core_claim" data-mode="profile">
+                                <span class="rating-star mdi mdi-numeric-0-circle-outline text-xl cursor-pointer" data-value="0"></span>
+                                <span class="rating-star mdi mdi-numeric-1-circle-outline text-xl cursor-pointer" data-value="1"></span>
+                                <span class="rating-star mdi mdi-numeric-2-circle-outline text-xl cursor-pointer" data-value="2"></span>
+                            </div>
+                        </div>
+                        <input type="text" id="dock-note-core_claim" placeholder="备注" class="soft-input text-base py-1.5 px-2">
+                    </div>
+                    <div class="flex flex-col gap-1.5 min-w-[110px]">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-sm font-bold text-gray-700">情感</span>
+                            <div class="rating-group flex" data-dimension="emotion_type" data-mode="profile">
+                                <span class="rating-star mdi mdi-numeric-0-circle-outline text-xl cursor-pointer" data-value="0"></span>
+                                <span class="rating-star mdi mdi-numeric-1-circle-outline text-xl cursor-pointer" data-value="1"></span>
+                                <span class="rating-star mdi mdi-numeric-2-circle-outline text-xl cursor-pointer" data-value="2"></span>
+                            </div>
+                        </div>
+                        <input type="text" id="dock-note-emotion_type" placeholder="备注" class="soft-input text-base py-1.5 px-2">
+                    </div>
+                </div>
+                <div class="flex items-center gap-3 pl-5 border-l-2 border-gray-300 flex-shrink-0">
+                    <button onclick="skipTask()" class="px-5 py-2.5 text-base font-medium text-gray-600 hover:text-gray-900 hover:bg-black/5 rounded-xl transition-colors">跳过</button>
+                    <button onclick="submitReview()" class="px-6 py-2.5 bg-black text-white text-base font-bold rounded-xl hover:bg-gray-800 transition-colors flex items-center gap-2 active:scale-95">
+                        <span>提交</span><span class="mdi mdi-arrow-right text-lg"></span>
+                    </button>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- 导入模态框 -->

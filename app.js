@@ -244,20 +244,15 @@ function renderTimeline() {
     const duration = elements.videoPlayer.duration;
     const segments = task.model_output?.segments || [];
 
-    // 渲染为一整段蓝色进度条
+    // 渲染为一整段黑色进度条 (Ive Style)
     elements.timelineSegments.innerHTML = `
-        <div class="absolute h-full w-full bg-blue-400 opacity-40 rounded"></div>
+        <div class="absolute h-full w-full bg-black opacity-20 rounded-full"></div>
     `;
 
-    // 只显示每个分段的开始点作为分界（相邻分段只显示一个点）
-    // 加上最后一个分段的结束点
+    // 严格只显示每个分段的开始时间作为分界点
     const boundaryTimes = new Set();
-    segments.forEach((seg, i) => {
+    segments.forEach((seg) => {
         boundaryTimes.add(seg.start);
-        // 只有最后一个分段才添加结束点
-        if (i === segments.length - 1) {
-            boundaryTimes.add(seg.end);
-        }
     });
 
     // 转换为数组并排序
@@ -265,10 +260,12 @@ function renderTimeline() {
     
     elements.timelineMarkers.innerHTML = sortedTimes.map(time => {
         const pos = (time / duration) * 100;
-        return `<div class="absolute w-3 h-3 bg-red-500 rounded-full transform -translate-x-1/2 cursor-pointer hover:scale-125 transition-transform"
-                    style="left: ${pos}%;"
-                    onclick="seekToTime(${time})"
+        // 极简风格的分段点 - 外层透明区域增大点击容错范围
+        return `<div class="absolute cursor-pointer z-20" 
+                    style="left: ${pos}%; transform: translateX(-50%); padding: 10px;"
+                    onclick="event.stopPropagation(); seekToTime(${time})"
                     title="分段点: ${formatTime(time)}">
+                    <div class="w-2.5 h-2.5 bg-white border-2 border-gray-400 shadow-sm rounded-full hover:scale-150 hover:border-black transition-all"></div>
                 </div>`;
     }).join('');
 }
@@ -281,10 +278,15 @@ function switchTab(tabName) {
     
     // 更新标签按钮样式
     document.querySelectorAll('.tab-btn').forEach(btn => {
-        btn.classList.remove('tab-active');
-        if (btn.dataset.tab === tabName) {
-            btn.classList.add('tab-active');
-        }
+        const isActive = btn.dataset.tab === tabName;
+        btn.classList.toggle('tab-active', isActive);
+        // 切换 Tailwind 类以配合 CSS
+        btn.classList.toggle('font-semibold', isActive);
+        btn.classList.toggle('text-black', isActive);
+        btn.classList.toggle('border-black', isActive);
+        btn.classList.toggle('font-medium', !isActive);
+        btn.classList.toggle('text-gray-400', !isActive);
+        btn.classList.toggle('border-transparent', !isActive);
     });
 
     // 切换面板显示
@@ -317,7 +319,7 @@ function renderTabContent(tabName) {
     }
 }
 
-// 渲染文本理解（显示每个片段的 text 字段）
+// 渲染文本理解（显示每个片段的 text 字段）- Ive Style: Unified Gray
 function renderTextUnderstanding(segments) {
     const container = document.getElementById('text-content');
     if (segments.length === 0) {
@@ -326,21 +328,20 @@ function renderTextUnderstanding(segments) {
     }
 
     container.innerHTML = segments.map((seg, i) => `
-        <div class="p-3 bg-gray-50 rounded border cursor-pointer hover:bg-gray-100 transition-colors"
+        <div class="p-4 rounded-2xl bg-black/[0.03] cursor-pointer hover:bg-black/[0.06] transition-all duration-200 active:scale-[0.99]"
              onclick="seekToTime(${seg.start})">
             <div class="flex justify-between items-center mb-2">
-                <span class="font-medium text-blue-600">片段 ${i + 1}</span>
-                <span class="text-xs text-gray-500">
-                    <span class="mdi mdi-clock-outline"></span>
-                    ${formatTime(seg.start)} - ${formatTime(seg.end)}
+                <span class="text-xs font-semibold text-gray-800 tracking-wide">${i + 1}</span>
+                <span class="text-[11px] text-gray-400 font-medium font-mono">
+                    ${formatTime(seg.start)} → ${formatTime(seg.end)}
                 </span>
             </div>
-            <p class="text-sm text-gray-700 leading-relaxed">${seg.description || seg.text || '无文本'}</p>
+            <p class="text-[15px] text-gray-700 leading-relaxed">${seg.description || seg.text || '无文本'}</p>
         </div>
     `).join('');
 }
 
-// 渲染视觉理解（只显示 vis 分段文字描述）
+// 渲染视觉理解（只显示 vis 分段文字描述）- Ive Style: Unified Gray
 function renderVisualUnderstanding(segments) {
     const container = document.getElementById('visual-content');
     if (segments.length === 0) {
@@ -349,21 +350,20 @@ function renderVisualUnderstanding(segments) {
     }
 
     container.innerHTML = segments.map((seg, i) => `
-        <div class="p-3 bg-gray-50 rounded border cursor-pointer hover:bg-gray-100 transition-colors"
+        <div class="p-4 rounded-2xl bg-black/[0.03] cursor-pointer hover:bg-black/[0.06] transition-all duration-200 active:scale-[0.99]"
              onclick="seekToTime(${seg.start})">
             <div class="flex justify-between items-center mb-2">
-                <span class="font-medium text-green-600">片段 ${i + 1}</span>
-                <span class="text-xs text-gray-500">
-                    <span class="mdi mdi-clock-outline"></span>
-                    ${formatTime(seg.start)} - ${formatTime(seg.end)}
+                <span class="text-xs font-semibold text-gray-800 tracking-wide">${i + 1}</span>
+                <span class="text-[11px] text-gray-400 font-medium font-mono">
+                    ${formatTime(seg.start)} → ${formatTime(seg.end)}
                 </span>
             </div>
-            <p class="text-sm text-gray-700 leading-relaxed">${seg.visual || '无视觉描述'}</p>
+            <p class="text-[15px] text-gray-700 leading-relaxed">${seg.visual || '无视觉描述'}</p>
         </div>
     `).join('');
 }
 
-// 渲染关键帧列表（按时间点击跳转）
+// 渲染关键帧列表（按时间点击跳转）- Ive Style: Unified Gray
 function renderKeyframeList(segments) {
     const container = document.getElementById('keyframe-content');
     
@@ -389,14 +389,14 @@ function renderKeyframeList(segments) {
     allKeyframes.sort((a, b) => a.time - b.time);
 
     container.innerHTML = allKeyframes.map(kf => `
-        <div class="flex items-start gap-3 p-3 bg-gray-50 rounded border cursor-pointer hover:bg-blue-50 transition-colors"
+        <div class="flex items-center gap-3 p-3 rounded-xl bg-black/[0.03] cursor-pointer hover:bg-black/[0.06] transition-all duration-200 active:scale-[0.99]"
              onclick="seekToTime(${kf.time})">
-            <span class="px-2 py-1 bg-blue-500 text-white text-xs rounded whitespace-nowrap">
-                <span class="mdi mdi-clock"></span> ${formatTime(kf.time)}
+            <span class="px-2.5 py-1 bg-black text-white text-[11px] font-medium rounded-full whitespace-nowrap font-mono">
+                ${formatTime(kf.time)}
             </span>
             <div class="flex-1">
-                <span class="text-sm text-gray-700">${kf.label || kf.desc || '关键帧'}</span>
-                <span class="text-xs text-gray-400 ml-2">(片段${kf.segmentIndex})</span>
+                <span class="text-[14px] text-gray-700">${kf.label || kf.desc || '关键帧'}</span>
+                <span class="text-[11px] text-gray-400 ml-2">§${kf.segmentIndex}</span>
             </div>
         </div>
     `).join('');
@@ -513,11 +513,13 @@ function highlightStars(group, value) {
 function resetRatings() {
     state.ratings = { time: 0, text: 0, visual: 0, keyframe: 0 };
     state.notes = { time: '', text: '', visual: '', keyframe: '' };
-    document.querySelectorAll('.rating-group').forEach(group => {
-        highlightStars(group, 0);
+    document.querySelectorAll('.rating-group[data-mode="segment"]').forEach(group => {
+        highlightSegmentStars(group, 0);
     });
-    // 清空所有备注输入
+    // 清空所有备注输入（dock 面板 + 旧面板兼容）
     ['time', 'text', 'visual', 'keyframe'].forEach(dim => {
+        const dockInput = document.getElementById(`dock-note-${dim}`);
+        if (dockInput) dockInput.value = '';
         const noteInput = document.getElementById(`note-${dim}`);
         if (noteInput) noteInput.value = '';
     });
@@ -545,8 +547,11 @@ function selectTask(index) {
     document.getElementById('review-workspace').classList.remove('hidden');
     
     const groupCount = task.model_outputs?.length || 1;
-    document.getElementById('current-task-label').textContent = `任务 ${index + 1}/${tasks.length}` + 
-        (groupCount > 1 ? ` (${groupCount}组数据)` : '');
+    const taskLabel = document.getElementById('current-task-label');
+    if (taskLabel) {
+        taskLabel.textContent = `任务 ${index + 1}/${tasks.length}` + 
+            (groupCount > 1 ? ` (${groupCount}组数据)` : '');
+    }
 
     // 加载视频
     // 自动将 HTTP URL 转换为 HTTPS（避免混合内容问题）
@@ -840,10 +845,10 @@ function updateProgress() {
     }).length;
     const percent = total > 0 ? (completed / total) * 100 : 0;
 
-    elements.progressBar.style.width = `${percent}%`;
-    elements.progressText.textContent = `${completed}/${total}`;
-    elements.completedCount.textContent = completed;
-    elements.pendingCount.textContent = total - completed;
+    if (elements.progressBar) elements.progressBar.style.width = `${percent}%`;
+    if (elements.progressText) elements.progressText.textContent = `${completed}/${total}`;
+    if (elements.completedCount) elements.completedCount.textContent = completed;
+    if (elements.pendingCount) elements.pendingCount.textContent = total - completed;
 }
 
 function updateUI() {
@@ -1697,7 +1702,8 @@ function clearAllTasks() {
     // 隐藏工作区，显示空状态
     document.getElementById('review-workspace').classList.add('hidden');
     document.getElementById('empty-state').classList.remove('hidden');
-    document.getElementById('current-task-label').textContent = '未选择任务';
+    const taskLabelClear = document.getElementById('current-task-label');
+    if (taskLabelClear) taskLabelClear.textContent = '未选择任务';
     
     // 清空视频
     elements.videoPlayer.src = '';
@@ -1882,23 +1888,33 @@ function restoreSidebarState() {
 }
 
 // ============================================
-// 评分面板折叠
+// 评分面板折叠 (Floating Sheet Logic)
 // ============================================
 function toggleRatingPanel() {
-    const content = document.getElementById('rating-panel-content');
+    const section = document.getElementById('rating-section');
     const icon = document.getElementById('rating-toggle-icon');
     
-    if (content.style.maxHeight && content.style.maxHeight !== '0px') {
-        // 收起
-        content.style.maxHeight = '0px';
-        content.style.padding = '0 16px';
-        icon.style.transform = 'rotate(180deg)';
+    // Check if currently expanded (translated to 0)
+    // The default class has translate-y-[calc(100%-80px)] which means collapsed
+    // We toggle a class 'expanded' which sets translate-y-0
+    
+    const isExpanded = section.classList.contains('expanded');
+    
+    if (isExpanded) {
+        // Collapse
+        section.classList.remove('expanded');
+        section.classList.remove('translate-y-0');
+        section.classList.add('translate-y-[calc(100%-80px)]');
+        
+        icon.style.transform = 'rotate(0deg)'; // Arrow points up (to expand)
         localStorage.setItem('rating-panel-collapsed', 'true');
     } else {
-        // 展开
-        content.style.maxHeight = content.scrollHeight + 'px';
-        content.style.padding = '16px';
-        icon.style.transform = 'rotate(0deg)';
+        // Expand
+        section.classList.add('expanded');
+        section.classList.remove('translate-y-[calc(100%-80px)]');
+        section.classList.add('translate-y-0');
+        
+        icon.style.transform = 'rotate(180deg)'; // Arrow points down (to collapse)
         localStorage.setItem('rating-panel-collapsed', 'false');
     }
 }
@@ -1906,16 +1922,21 @@ function toggleRatingPanel() {
 // 初始化时恢复评分面板状态
 function restoreRatingPanelState() {
     const isCollapsed = localStorage.getItem('rating-panel-collapsed') === 'true';
-    const content = document.getElementById('rating-panel-content');
+    const section = document.getElementById('rating-section');
     const icon = document.getElementById('rating-toggle-icon');
     
-    if (isCollapsed && content) {
-        content.style.maxHeight = '0px';
-        content.style.padding = '0 16px';
+    if (!section) return;
+
+    if (isCollapsed) {
+        section.classList.remove('expanded');
+        section.classList.remove('translate-y-0');
+        section.classList.add('translate-y-[calc(100%-80px)]');
+        if (icon) icon.style.transform = 'rotate(0deg)';
+    } else {
+        section.classList.add('expanded');
+        section.classList.remove('translate-y-[calc(100%-80px)]');
+        section.classList.add('translate-y-0');
         if (icon) icon.style.transform = 'rotate(180deg)';
-    } else if (content) {
-        // 默认展开状态
-        content.style.maxHeight = content.scrollHeight + 'px';
     }
 }
 
@@ -2029,15 +2050,13 @@ function switchReviewMode(mode) {
     state.reviewMode = mode;
     localStorage.setItem('review-mode', mode);
     
-    // 更新模式按钮样式
+    // 更新模式按钮样式 (iOS Segmented Control Style)
     document.querySelectorAll('.mode-btn').forEach(btn => {
-        btn.classList.remove('bg-blue-500', 'text-white');
-        btn.classList.add('text-gray-600', 'hover:bg-gray-200');
+        btn.classList.remove('active');
     });
     const activeBtn = document.getElementById(`mode-${mode}`);
     if (activeBtn) {
-        activeBtn.classList.add('bg-blue-500', 'text-white');
-        activeBtn.classList.remove('text-gray-600', 'hover:bg-gray-200');
+        activeBtn.classList.add('active');
     }
     
     // 切换内容和评分面板
@@ -2045,17 +2064,23 @@ function switchReviewMode(mode) {
     const profileContent = document.getElementById('profile-mode-content');
     const segmentRating = document.getElementById('segment-rating-panel');
     const profileRating = document.getElementById('profile-rating-panel');
+    const segmentDock = document.getElementById('segment-rating-dock');
+    const profileDock = document.getElementById('profile-rating-dock');
     
     if (mode === 'segment') {
         segmentContent?.classList.remove('hidden');
         profileContent?.classList.add('hidden');
         segmentRating?.classList.remove('hidden');
         profileRating?.classList.add('hidden');
+        segmentDock?.classList.remove('hidden');
+        profileDock?.classList.add('hidden');
     } else {
         segmentContent?.classList.add('hidden');
         profileContent?.classList.remove('hidden');
         segmentRating?.classList.add('hidden');
         profileRating?.classList.remove('hidden');
+        segmentDock?.classList.add('hidden');
+        profileDock?.classList.remove('hidden');
     }
     
     // 刷新任务列表和进度（切换模式后显示对应模式的任务）
@@ -2069,7 +2094,8 @@ function switchReviewMode(mode) {
         // 当前模式无任务，显示空状态
         document.getElementById('review-workspace').classList.add('hidden');
         document.getElementById('empty-state').classList.remove('hidden');
-        document.getElementById('current-task-label').textContent = '未选择任务';
+        const taskLabelMode = document.getElementById('current-task-label');
+        if (taskLabelMode) taskLabelMode.textContent = '未选择任务';
         elements.videoPlayer.src = '';
     } else if (index >= 0 && index < tasks.length) {
         // 有任务且已选中，恢复选中状态
@@ -2170,29 +2196,65 @@ function renderProfileContent() {
         : '<div class="text-gray-400 text-center py-8">暂无全篇语义画像数据</div>';
 }
 
+// Ive Style: Unified Gray Profile Section - No colorful backgrounds
 function renderProfileSection(title, icon, color, tag, content) {
-    const colorClasses = {
-        blue: 'bg-blue-50 border-blue-200 text-blue-600',
-        green: 'bg-green-50 border-green-200 text-green-600',
-        purple: 'bg-purple-50 border-purple-200 text-purple-600',
-        orange: 'bg-orange-50 border-orange-200 text-orange-600',
-        teal: 'bg-teal-50 border-teal-200 text-teal-600',
-        yellow: 'bg-yellow-50 border-yellow-200 text-yellow-600',
-        pink: 'bg-pink-50 border-pink-200 text-pink-600'
-    };
-    const bgClass = colorClasses[color] || colorClasses.blue;
-    
     return `
-        <div class="p-3 ${bgClass} rounded border">
-            <div class="flex items-center mb-2">
-                <span class="mdi ${icon} mr-2"></span>
-                <span class="font-medium">${title}</span>
-                ${tag ? `<span class="ml-2 px-2 py-0.5 bg-white rounded text-sm">${escapeHTML(tag)}</span>` : ''}
+        <div class="p-4 rounded-2xl bg-black/[0.03] hover:bg-black/[0.05] transition-all duration-200">
+            <div class="flex items-center justify-between mb-2">
+                <div class="flex items-center gap-2">
+                    <span class="mdi ${icon} text-gray-400 text-lg"></span>
+                    <span class="text-xs font-semibold text-gray-800 uppercase tracking-wide">${title}</span>
+                </div>
+                ${tag ? `<span class="px-2.5 py-1 bg-black text-white text-[11px] font-medium rounded-full">${escapeHTML(tag)}</span>` : ''}
             </div>
-            ${content ? `<p class="text-sm text-gray-700 leading-relaxed">${escapeHTML(content)}</p>` : ''}
+            ${content ? `<p class="text-[15px] text-gray-700 leading-relaxed">${escapeHTML(content)}</p>` : ''}
         </div>
     `;
 }
+
+// ============================================
+// 备注面板切换
+// ============================================
+function toggleNotePanel() {
+    const notePanel = document.getElementById('note-panel');
+    const segmentNotePanel = document.getElementById('segment-note-panel');
+    const profileNotePanel = document.getElementById('profile-note-panel');
+    const toggleIcon = document.getElementById('note-toggle-icon');
+    
+    if (notePanel) {
+        const isHidden = notePanel.classList.contains('hidden');
+        notePanel.classList.toggle('hidden');
+        
+        // 根据当前模式切换显示对应的备注面板
+        if (state.reviewMode === 'segment') {
+            segmentNotePanel?.classList.remove('hidden');
+            profileNotePanel?.classList.add('hidden');
+        } else {
+            segmentNotePanel?.classList.add('hidden');
+            profileNotePanel?.classList.remove('hidden');
+        }
+        
+        // 切换图标样式
+        if (toggleIcon) {
+            if (isHidden) {
+                toggleIcon.classList.remove('mdi-comment-outline');
+                toggleIcon.classList.add('mdi-comment-check', 'text-blue-500');
+            } else {
+                toggleIcon.classList.remove('mdi-comment-check', 'text-blue-500');
+                toggleIcon.classList.add('mdi-comment-outline');
+            }
+        }
+        
+        // 自动聚焦第一个输入框
+        if (isHidden) {
+            setTimeout(() => {
+                const firstInput = notePanel.querySelector('input:not([type="hidden"])');
+                if (firstInput) firstInput.focus();
+            }, 100);
+        }
+    }
+}
+window.toggleNotePanel = toggleNotePanel;
 
 // ============================================
 // 评分系统 - 支持两种模式
@@ -2221,28 +2283,31 @@ function initRatingListeners() {
 
 function setSegmentRating(dimension, value) {
     state.ratings[dimension] = value;
-    const group = document.querySelector(`.rating-group[data-dimension="${dimension}"][data-mode="segment"]`);
-    if (group) highlightSegmentStars(group, value);
+    // 同步更新所有相关的 rating-group（包括 dock 面板和旧面板）
+    document.querySelectorAll(`.rating-group[data-dimension="${dimension}"][data-mode="segment"]`).forEach(group => {
+        highlightSegmentStars(group, value);
+    });
     saveToLocalStorage();
 }
 
 function highlightSegmentStars(group, value) {
     group.querySelectorAll('.rating-star').forEach(star => {
         const starValue = parseInt(star.dataset.value);
+        // 只切换 active 类来改变颜色，保持 mdi-star 图标不变
         if (starValue <= value) {
-            star.classList.remove('mdi-star-outline');
-            star.classList.add('mdi-star', 'active');
+            star.classList.add('active');
         } else {
-            star.classList.remove('mdi-star', 'active');
-            star.classList.add('mdi-star-outline');
+            star.classList.remove('active');
         }
     });
 }
 
 function setProfileRating(dimension, value) {
     state.profileRatings[dimension] = value;
-    const group = document.querySelector(`.rating-group[data-dimension="${dimension}"][data-mode="profile"]`);
-    if (group) highlightProfileStars(group, value);
+    // 同步更新所有相关的 rating-group（包括 dock 面板和旧面板）
+    document.querySelectorAll(`.rating-group[data-dimension="${dimension}"][data-mode="profile"]`).forEach(group => {
+        highlightProfileStars(group, value);
+    });
     saveToLocalStorage();
 }
 
@@ -2298,10 +2363,16 @@ saveReviewForCurrentGroup = function() {
     if (!task) return;
     
     if (state.reviewMode === 'segment') {
-        // 收集分段语义详情的备注
+        // 收集分段语义详情的备注（优先从 dock 面板读取）
         ['time', 'text', 'visual', 'keyframe'].forEach(dim => {
+            const dockInput = document.getElementById(`dock-note-${dim}`);
             const noteInput = document.getElementById(`note-${dim}`);
-            if (noteInput) state.notes[dim] = noteInput.value;
+            // 优先使用 dock 面板的值
+            if (dockInput && dockInput.value) {
+                state.notes[dim] = dockInput.value;
+            } else if (noteInput && noteInput.value) {
+                state.notes[dim] = noteInput.value;
+            }
         });
         
         // 确保 reviews 数组存在
@@ -2318,10 +2389,16 @@ saveReviewForCurrentGroup = function() {
             timestamp: new Date().toISOString()
         };
     } else {
-        // 收集全篇语义画像的备注
+        // 收集全篇语义画像的备注（优先从 dock 面板读取）
         PROFILE_DIMENSIONS.forEach(dim => {
+            const dockInput = document.getElementById(`dock-note-${dim.key}`);
             const noteInput = document.getElementById(`note-${dim.key}`);
-            if (noteInput) state.profileNotes[dim.key] = noteInput.value;
+            // 优先使用 dock 面板的值
+            if (dockInput && dockInput.value) {
+                state.profileNotes[dim.key] = dockInput.value;
+            } else if (noteInput && noteInput.value) {
+                state.profileNotes[dim.key] = noteInput.value;
+            }
         });
         
         // 确保 profileReviews 数组存在
@@ -2352,8 +2429,13 @@ loadReviewForCurrentGroup = function() {
             state.ratings = { ...review.ratings };
             state.notes = { ...review.notes };
             Object.keys(state.ratings).forEach(dim => {
-                const group = document.querySelector(`.rating-group[data-dimension="${dim}"][data-mode="segment"]`);
-                if (group) highlightSegmentStars(group, state.ratings[dim]);
+                // 更新所有评分组（包括 dock 面板和旧面板）
+                document.querySelectorAll(`.rating-group[data-dimension="${dim}"][data-mode="segment"]`).forEach(group => {
+                    highlightSegmentStars(group, state.ratings[dim]);
+                });
+                // 同时更新 dock 面板和旧面板的输入框
+                const dockInput = document.getElementById(`dock-note-${dim}`);
+                if (dockInput) dockInput.value = state.notes[dim] || '';
                 const noteInput = document.getElementById(`note-${dim}`);
                 if (noteInput) noteInput.value = state.notes[dim] || '';
             });
@@ -2367,8 +2449,13 @@ loadReviewForCurrentGroup = function() {
             state.profileRatings = { ...review.ratings };
             state.profileNotes = { ...review.notes };
             PROFILE_DIMENSIONS.forEach(dim => {
-                const group = document.querySelector(`.rating-group[data-dimension="${dim.key}"][data-mode="profile"]`);
-                if (group) highlightProfileStars(group, state.profileRatings[dim.key]);
+                // 更新所有评分组（包括 dock 面板和旧面板）
+                document.querySelectorAll(`.rating-group[data-dimension="${dim.key}"][data-mode="profile"]`).forEach(group => {
+                    highlightProfileStars(group, state.profileRatings[dim.key]);
+                });
+                // 同时更新 dock 面板和旧面板的输入框
+                const dockInput = document.getElementById(`dock-note-${dim.key}`);
+                if (dockInput) dockInput.value = state.profileNotes[dim.key] || '';
                 const noteInput = document.getElementById(`note-${dim.key}`);
                 if (noteInput) noteInput.value = state.profileNotes[dim.key] || '';
             });
