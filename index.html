@@ -8,6 +8,29 @@
     <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css" rel="stylesheet">
     <style>
+        /* Instant tooltip */
+        .instant-tip { position: relative; }
+        .instant-tip:hover::after {
+            content: attr(data-tip);
+            position: absolute; left: 0; top: 100%; z-index: 50;
+            margin-top: 4px; padding: 6px 10px;
+            max-width: 320px; width: max-content;
+            background: rgba(0,0,0,.8); color: #fff;
+            font-size: 12px; line-height: 1.4; border-radius: 6px;
+            white-space: normal; word-break: break-all;
+            pointer-events: none;
+        }
+        /* Audiovisual rating grid cells */
+        .av-rate-cell { display: flex; flex-direction: column; gap: 2px; }
+        .av-rate-top { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
+        .av-rate-label { font-size: 12px; font-weight: 700; color: #374151; white-space: nowrap; min-width: 32px; }
+        .av-rate-note {
+            width: 100%; font-size: 11px; padding: 2px 6px; border-radius: 6px;
+            border: 1px solid #e5e7eb; background: #f9fafb; color: #374151;
+            outline: none; transition: border-color 0.15s;
+        }
+        .av-rate-note:focus { border-color: #9ca3af; background: #fff; }
+        .av-rate-note::placeholder { color: #d1d5db; }
         /* The "Ive" Aesthetic: Reduction, Depth, and Fluidity */
         :root {
             --bg-color: #F2F2F7;
@@ -65,6 +88,14 @@
             background: black;
             box-shadow: 0 20px 50px rgba(0,0,0,0.15); /* Cinematic shadow */
             transition: all 0.3s ease;
+        }
+        /* 隐藏原生控制条，hover 时才显示 */
+        .video-container video::-webkit-media-controls {
+            opacity: 0;
+            transition: opacity 0.25s ease;
+        }
+        .video-container:hover video::-webkit-media-controls {
+            opacity: 1;
         }
 
         /* Controls: Floating Capsules */
@@ -139,14 +170,16 @@
 <body class="h-screen w-screen overflow-hidden flex selection:bg-blue-100 selection:text-blue-900">
 
     <!-- 1. The Navigation Layer (Sidebar) -->
-    <!-- Minimal, blending into background, no hard borders -->
-    <aside id="task-sidebar" class="w-64 h-full flex flex-col pt-8 pb-4 z-20 transition-all duration-500 ease-[cubic-bezier(0.32,0.72,0,1)]">
+    <aside id="task-sidebar" class="w-64 h-full flex flex-col pt-8 pb-4 z-20 transition-all duration-300 overflow-hidden flex-shrink-0">
         <!-- Brand / Header -->
         <div class="px-6 mb-8 flex items-center justify-between">
-            <h1 class="text-xl font-bold tracking-tight text-black opacity-90">审查台</h1>
+            <h1 class="text-xl font-bold tracking-tight text-black opacity-90 whitespace-nowrap">审查台</h1>
             <div class="flex gap-2">
                 <button onclick="clearAllTasks()" class="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center text-red-500 hover:scale-105 transition-transform" title="清空任务">
                     <span class="mdi mdi-delete-outline text-lg"></span>
+                </button>
+                <button onclick="sortTasksByNid()" class="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center text-gray-600 hover:scale-105 transition-transform" title="按ID排序">
+                    <span class="mdi mdi-sort-numeric-ascending text-lg"></span>
                 </button>
                 <button onclick="exportResults()" class="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center text-green-600 hover:scale-105 transition-transform" title="导出结果">
                     <span class="mdi mdi-download text-lg"></span>
@@ -156,7 +189,22 @@
                 </button>
             </div>
         </div>
-        
+
+        <!-- Workspace Switcher -->
+        <div class="px-6 mb-4">
+            <div class="flex items-center gap-1.5">
+                <select id="workspace-select" onchange="switchWorkspace(this.value)"
+                    class="flex-1 text-xs font-medium text-gray-700 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 truncate cursor-pointer focus:outline-none focus:border-blue-400 transition-colors">
+                </select>
+                <button onclick="createWorkspace()" class="w-7 h-7 rounded-full bg-white shadow-sm flex items-center justify-center text-gray-400 hover:text-blue-500 hover:scale-105 transition-all flex-shrink-0" title="新建工作区">
+                    <span class="mdi mdi-plus text-sm"></span>
+                </button>
+                <button onclick="showWorkspaceMenu()" class="w-7 h-7 rounded-full bg-white shadow-sm flex items-center justify-center text-gray-400 hover:text-gray-600 hover:scale-105 transition-all flex-shrink-0" title="管理工作区">
+                    <span class="mdi mdi-dots-horizontal text-sm"></span>
+                </button>
+            </div>
+        </div>
+
         <!-- Progress Ring (Mini) -->
         <div class="px-6 mb-6">
             <div class="flex justify-between text-xs font-medium text-gray-400 mb-2 tracking-wide">进度</div>
@@ -178,13 +226,22 @@
 
     <!-- 2. The Workspace (Main Content) -->
     <main class="flex-1 flex flex-col h-full relative z-10 overflow-hidden bg-white/50 backdrop-blur-xl rounded-l-[40px] shadow-2xl ml-2 border border-white/40">
-        
+
         <!-- Top Toolbar: Compact -->
         <div class="flex items-center justify-center px-6 py-2 z-30 border-b border-gray-100/50">
+            <!-- 展开侧边栏按钮（侧边栏收起时显示） -->
+            <button id="sidebar-expand-btn" onclick="toggleSidebar()" class="hidden absolute left-4 w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center text-gray-500 hover:text-black hover:scale-105 transition-all" title="展开审查台">
+                <span class="mdi mdi-menu text-lg"></span>
+            </button>
+            <!-- 收起侧边栏按钮（侧边栏展开时显示） -->
+            <button id="sidebar-collapse-btn" onclick="toggleSidebar()" class="absolute left-4 w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center text-gray-400 hover:text-black hover:scale-105 transition-all" title="收起审查台">
+                <span class="mdi mdi-arrow-collapse-left text-lg"></span>
+            </button>
             <!-- Mode Switcher (Centered) -->
             <div class="shadow-sm ios-segment-bg">
                 <button id="mode-segment" onclick="switchReviewMode('segment')" class="mode-btn active">分段详情</button>
                 <button id="mode-profile" onclick="switchReviewMode('profile')" class="mode-btn">全篇画像</button>
+                <button id="mode-audiovisual" onclick="switchReviewMode('audiovisual')" class="mode-btn">音画质量</button>
             </div>
             <!-- Help -->
             <button onclick="showHelp()" class="absolute right-6 w-7 h-7 rounded-full bg-white/80 hover:bg-white shadow-sm flex items-center justify-center text-gray-400 transition-all">
@@ -193,7 +250,7 @@
         </div>
 
         <!-- Main Content Area -->
-        <div id="workspace" class="flex-1 flex overflow-hidden p-4 pb-40 gap-6">
+        <div id="workspace" class="flex-1 flex overflow-hidden p-4 pb-4 gap-6">
             
             <!-- Empty State -->
              <div id="empty-state" class="flex-1 flex flex-col items-center justify-center text-center">
@@ -211,54 +268,57 @@
             <div id="review-workspace" class="hidden flex-1 flex gap-8 min-h-0 w-full">
                 
                 <!-- Center: The Cinema (Video) -->
-                <div class="flex-1 flex flex-col min-w-0">
+                <div class="flex-1 flex flex-col min-w-0 pb-28">
                     <div class="video-container flex-1 relative group bg-black rounded-[32px] overflow-hidden">
-                        <video id="video-player" class="w-full h-full object-contain" controls playsinline preload="auto"></video>
-                    </div>
+                        <video id="video-player" class="w-full h-full object-contain" playsinline preload="auto"></video>
 
-                    <!-- Floating Controls below video -->
-                    <div class="h-24 flex items-center justify-between px-4">
-                        <div class="flex items-center gap-4">
-                            <button onclick="seekRelative(-5)" class="control-pill w-12 h-12 flex items-center justify-center text-gray-700 hover:text-black">
-                                <span class="mdi mdi-rewind-5 text-xl"></span>
-                            </button>
-                            <button onclick="togglePlay()" class="control-pill w-16 h-16 flex items-center justify-center bg-black text-white border-none hover:scale-105 shadow-xl">
-                                <span id="play-btn-icon" class="mdi mdi-play text-3xl ml-1"></span>
-                            </button>
-                            <button onclick="seekRelative(5)" class="control-pill w-12 h-12 flex items-center justify-center text-gray-700 hover:text-black">
-                                <span class="mdi mdi-fast-forward-5 text-xl"></span>
-                            </button>
-                        </div>
-                        
-                        <!-- Timeline Info -->
-                        <div class="flex-1 mx-8">
-                             <div id="timeline" class="h-1.5 bg-gray-200 rounded-full relative cursor-pointer group hover:h-2 transition-all" onclick="seekToPosition(event)">
-                                <div id="timeline-progress" class="h-full bg-black rounded-full absolute left-0" style="width: 0%"></div>
-                                <div id="timeline-segments" class="absolute inset-0"></div>
-                                <div id="timeline-markers" class="absolute inset-0 flex items-center"></div>
+                        <!-- Controls overlay inside video -->
+                        <div class="absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent pt-10 pb-3 px-5 opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none">
+                            <div class="pointer-events-auto">
+                                <!-- Timeline -->
+                                <div class="mb-2">
+                                    <div id="timeline" class="h-1.5 bg-white/30 rounded-full relative cursor-pointer hover:h-2.5 transition-all" onclick="seekToPosition(event)">
+                                        <div id="timeline-progress" class="h-full bg-white rounded-full absolute left-0" style="width: 0%"></div>
+                                        <div id="timeline-segments" class="absolute inset-0"></div>
+                                        <div id="timeline-markers" class="absolute inset-0 flex items-center"></div>
+                                    </div>
+                                </div>
+                                <!-- Buttons row -->
+                                <div class="flex items-center justify-between">
+                                    <div class="flex items-center gap-2">
+                                        <button onclick="seekRelative(-5)" class="w-8 h-8 flex items-center justify-center text-white/80 hover:text-white rounded-full hover:bg-white/10 transition-colors">
+                                            <span class="mdi mdi-rewind-5 text-lg"></span>
+                                        </button>
+                                        <button onclick="togglePlay()" class="w-10 h-10 flex items-center justify-center text-white rounded-full bg-white/20 hover:bg-white/30 transition-colors">
+                                            <span id="play-btn-icon" class="mdi mdi-play text-2xl ml-0.5"></span>
+                                        </button>
+                                        <button onclick="seekRelative(5)" class="w-8 h-8 flex items-center justify-center text-white/80 hover:text-white rounded-full hover:bg-white/10 transition-colors">
+                                            <span class="mdi mdi-fast-forward-5 text-lg"></span>
+                                        </button>
+                                    </div>
+                                    <span id="time-display" class="text-xs font-medium text-white/70 font-mono">00:00 / 00:00</span>
+                                    <select id="playback-rate" onchange="changePlaybackRate()" class="bg-white/15 text-white text-xs font-semibold rounded-lg px-2 py-1 appearance-none text-center w-16 cursor-pointer border border-white/20 hover:bg-white/25 transition-colors [&>option]:bg-gray-800 [&>option]:text-white">
+                                        <option value="0.5">0.5×</option>
+                                        <option value="1" selected>1×</option>
+                                        <option value="1.5">1.5×</option>
+                                        <option value="2">2×</option>
+                                    </select>
+                                </div>
                             </div>
-                            <div class="flex justify-between mt-2 text-xs font-medium text-gray-400 font-mono">
-                                <span>00:00</span>
-                                <span id="time-display">00:00 / 00:00</span>
-                            </div>
                         </div>
-
-                        <!-- Speed -->
-                         <select id="playback-rate" onchange="changePlaybackRate()" class="control-pill px-4 py-2 text-xs font-semibold appearance-none text-center w-20 cursor-pointer">
-                            <option value="0.5">0.5×</option>
-                            <option value="1" selected>1×</option>
-                            <option value="1.5">1.5×</option>
-                            <option value="2">2×</option>
-                        </select>
                     </div>
                 </div>
 
                 <!-- Right: The Inspector (Data) -->
                 <div class="w-[420px] flex flex-col h-full pb-2">
                     <div class="ive-card flex-1 flex flex-col overflow-hidden shadow-xl border border-white/50 bg-white/80 backdrop-blur-md">
-                        <!-- Data Group Pills -->
-                        <div id="output-group-switcher" class="hidden flex-shrink-0 px-6 pt-6 pb-2">
-                            <div class="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3 pl-1">Data Model</div>
+                        <!-- 当前任务标题 -->
+                        <div id="current-task-label" class="hidden flex-shrink-0 px-6 pt-3 pb-1 cursor-pointer" onclick="this.querySelector('div').classList.toggle('line-clamp-2')">
+                            <div class="text-sm font-bold text-gray-800 break-words line-clamp-2"></div>
+                        </div>
+
+                        <!-- 模型切换 -->
+                        <div id="output-group-switcher" class="hidden flex-shrink-0 px-6 pt-2 pb-2">
                             <div id="output-group-buttons" class="flex gap-2 flex-wrap"></div>
                         </div>
 
@@ -270,7 +330,7 @@
                                 <button onclick="switchTab('keyframe')" class="tab-btn py-4 text-sm font-medium text-gray-400 hover:text-gray-600 transition-colors border-b-2 border-transparent" data-tab="keyframe">关键帧</button>
                             </div>
                             
-                            <div id="tab-content" class="flex-1 overflow-y-auto p-6 no-scrollbar mask-image-gradient">
+                            <div id="tab-content" class="flex-1 overflow-y-auto p-6 pb-32 no-scrollbar">
                                 <div id="tab-text" class="tab-panel"><div id="text-content" class="space-y-6 text-sm leading-relaxed text-gray-600"></div></div>
                                 <div id="tab-visual" class="tab-panel hidden"><div id="visual-content" class="space-y-6 text-sm leading-relaxed text-gray-600"></div></div>
                                 <div id="tab-keyframe" class="tab-panel hidden"><div id="keyframe-content" class="space-y-4"></div></div>
@@ -279,7 +339,12 @@
 
                         <!-- Profile Content -->
                         <div id="profile-mode-content" class="hidden flex flex-col flex-1 overflow-hidden p-6">
-                            <div id="profile-content" class="space-y-6 overflow-y-auto no-scrollbar pb-20"></div>
+                            <div id="profile-content" class="space-y-6 overflow-y-auto no-scrollbar pb-32"></div>
+                        </div>
+
+                        <!-- Audiovisual Content -->
+                        <div id="audiovisual-mode-content" class="hidden flex flex-col flex-1 overflow-hidden p-6">
+                            <div id="audiovisual-content" class="space-y-6 overflow-y-auto no-scrollbar pb-32"></div>
                         </div>
                     </div>
                 </div>
@@ -449,13 +514,20 @@
         <div id="note-panel" class="hidden">
             <div id="segment-note-panel"></div>
             <div id="profile-note-panel"></div>
+            <div id="audiovisual-note-panel"></div>
         </div>
+        <!-- Audiovisual in-page rating panel (hidden, dock used instead) -->
+        <div id="audiovisual-rating-panel" class="hidden"></div>
         <!-- End of Workspace Main -->
     </main>
 
     <!-- Bottom Rating Dock - Outside main to avoid overflow clipping -->
-    <div id="rating-dock" class="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-[100] w-[calc(100%-300px)] max-w-6xl">
-        <div class="glass-blur shadow-2xl rounded-3xl border border-white/30 ring-1 ring-black/5 p-5">
+    <div id="rating-dock" class="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-[100] w-[calc(100%-300px)] max-w-6xl transition-all duration-300">
+        <!-- 收起/展开按钮 -->
+        <button id="rating-dock-toggle" onclick="toggleRatingDock()" class="absolute -top-3 left-1/2 -translate-x-1/2 z-10 bg-white shadow-md border border-gray-200 rounded-full w-7 h-7 flex items-center justify-center hover:bg-gray-50 transition-colors">
+            <span class="mdi mdi-chevron-down text-lg text-gray-500"></span>
+        </button>
+        <div id="rating-dock-body" class="glass-blur shadow-2xl rounded-3xl border border-white/30 ring-1 ring-black/5 p-5">
             
             <!-- Segment Ratings -->
             <div id="segment-rating-dock" class="flex items-center gap-6">
@@ -601,6 +673,86 @@
                     </button>
                 </div>
             </div>
+
+            <!-- Audiovisual Ratings -->
+            <div id="audiovisual-rating-dock" class="hidden flex items-start gap-4">
+                <div class="flex-1 overflow-y-auto no-scrollbar" style="max-height: 180px;">
+                    <div class="grid grid-cols-8 gap-x-3 gap-y-1.5">
+                        <!-- Row 1: 总体 | 加工 | 加工时间 | 构图 | 构图时间 | 人物 | 人物时间 | 生物 -->
+                        <div class="av-rate-cell">
+                            <div class="av-rate-top"><span class="av-rate-label">总体</span><div class="rating-group flex" data-dimension="overall_quality" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
+                            <input type="text" id="dock-note-overall_quality" placeholder="备注" class="av-rate-note">
+                        </div>
+                        <div class="av-rate-cell">
+                            <div class="av-rate-top"><span class="av-rate-label">加工</span><div class="rating-group flex" data-dimension="processing_elements" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
+                            <input type="text" id="dock-note-processing_elements" placeholder="备注" class="av-rate-note">
+                        </div>
+                        <div class="av-rate-cell">
+                            <div class="av-rate-top"><span class="av-rate-label">加工时间</span><div class="rating-group flex" data-dimension="processing_elements_time" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
+                            <input type="text" id="dock-note-processing_elements_time" placeholder="备注" class="av-rate-note">
+                        </div>
+                        <div class="av-rate-cell">
+                            <div class="av-rate-top"><span class="av-rate-label">构图</span><div class="rating-group flex" data-dimension="composition" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
+                            <input type="text" id="dock-note-composition" placeholder="备注" class="av-rate-note">
+                        </div>
+                        <div class="av-rate-cell">
+                            <div class="av-rate-top"><span class="av-rate-label">构图时间</span><div class="rating-group flex" data-dimension="composition_time" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
+                            <input type="text" id="dock-note-composition_time" placeholder="备注" class="av-rate-note">
+                        </div>
+                        <div class="av-rate-cell">
+                            <div class="av-rate-top"><span class="av-rate-label">人物</span><div class="rating-group flex" data-dimension="person" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
+                            <input type="text" id="dock-note-person" placeholder="备注" class="av-rate-note">
+                        </div>
+                        <div class="av-rate-cell">
+                            <div class="av-rate-top"><span class="av-rate-label">人物时间</span><div class="rating-group flex" data-dimension="person_time" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
+                            <input type="text" id="dock-note-person_time" placeholder="备注" class="av-rate-note">
+                        </div>
+                        <div class="av-rate-cell">
+                            <div class="av-rate-top"><span class="av-rate-label">生物</span><div class="rating-group flex" data-dimension="creature" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
+                            <input type="text" id="dock-note-creature" placeholder="备注" class="av-rate-note">
+                        </div>
+                        <!-- Row 2: 生物时间 | 信息 | 真实性 | 地理 | 时效 | 低俗 | 营销 | 道德 -->
+                        <div class="av-rate-cell">
+                            <div class="av-rate-top"><span class="av-rate-label">生物时间</span><div class="rating-group flex" data-dimension="creature_time" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
+                            <input type="text" id="dock-note-creature_time" placeholder="备注" class="av-rate-note">
+                        </div>
+                        <div class="av-rate-cell">
+                            <div class="av-rate-top"><span class="av-rate-label">信息</span><div class="rating-group flex" data-dimension="info_attributes" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
+                            <input type="text" id="dock-note-info_attributes" placeholder="备注" class="av-rate-note">
+                        </div>
+                        <div class="av-rate-cell">
+                            <div class="av-rate-top"><span class="av-rate-label">真实性</span><div class="rating-group flex" data-dimension="questionable_info" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
+                            <input type="text" id="dock-note-questionable_info" placeholder="备注" class="av-rate-note">
+                        </div>
+                        <div class="av-rate-cell">
+                            <div class="av-rate-top"><span class="av-rate-label">地理</span><div class="rating-group flex" data-dimension="geographic_info" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
+                            <input type="text" id="dock-note-geographic_info" placeholder="备注" class="av-rate-note">
+                        </div>
+                        <div class="av-rate-cell">
+                            <div class="av-rate-top"><span class="av-rate-label">时效</span><div class="rating-group flex" data-dimension="timeliness_info" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
+                            <input type="text" id="dock-note-timeliness_info" placeholder="备注" class="av-rate-note">
+                        </div>
+                        <div class="av-rate-cell">
+                            <div class="av-rate-top"><span class="av-rate-label">低俗</span><div class="rating-group flex" data-dimension="vulgar_intent" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
+                            <input type="text" id="dock-note-vulgar_intent" placeholder="备注" class="av-rate-note">
+                        </div>
+                        <div class="av-rate-cell">
+                            <div class="av-rate-top"><span class="av-rate-label">营销</span><div class="rating-group flex" data-dimension="promotional_intent" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
+                            <input type="text" id="dock-note-promotional_intent" placeholder="备注" class="av-rate-note">
+                        </div>
+                        <div class="av-rate-cell">
+                            <div class="av-rate-top"><span class="av-rate-label">道德</span><div class="rating-group flex" data-dimension="immoral_values" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
+                            <input type="text" id="dock-note-immoral_values" placeholder="备注" class="av-rate-note">
+                        </div>
+                    </div>
+                </div>
+                <div class="flex flex-col items-center gap-2 pl-4 border-l-2 border-gray-300 flex-shrink-0 self-center">
+                    <button onclick="submitReview()" class="px-6 py-2.5 bg-black text-white text-base font-bold rounded-xl hover:bg-gray-800 transition-colors flex items-center gap-2 active:scale-95">
+                        <span>提交</span><span class="mdi mdi-arrow-right text-lg"></span>
+                    </button>
+                    <button onclick="skipTask()" class="px-5 py-1.5 text-sm font-medium text-gray-500 hover:text-gray-900 hover:bg-black/5 rounded-lg transition-colors">跳过</button>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -615,12 +767,17 @@
             </div>
             <div class="p-4">
                 <div class="mb-2">
-                    <label class="block text-sm font-medium text-gray-700 mb-2">选择 Excel 文件</label>
+                    <label class="block text-sm font-medium text-gray-700 mb-2">选择文件</label>
                 </div>
                 <div id="import-file-section">
-                    <input type="file" id="import-file" accept=".xlsx,.xls" class="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded file:border-0 file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+                    <input type="file" id="import-file" accept=".xlsx,.xls,.jsonl" multiple class="hidden" onchange="onImportFileChange(this)">
+                    <button onclick="document.getElementById('import-file').click()" class="w-full py-3 px-4 border-2 border-dashed border-gray-300 rounded-lg text-sm text-gray-500 hover:border-blue-400 hover:text-blue-500 transition-colors">
+                        <span class="mdi mdi-plus-circle-outline mr-1"></span>点击选择文件（可多次添加不同目录的文件）
+                    </button>
+                    <div id="import-file-list" class="mt-2 space-y-1"></div>
                     <p class="mt-2 text-xs text-gray-500">
-                        格式要求：第一列为视频URL，第二列及之后为JSON数据（可多列）<br>
+                        支持格式：Excel (.xlsx/.xls) 或 JSONL (.jsonl)<br>
+                        JSONL 可多次添加不同文件，自动按视频URL合并，每个文件视为一个模型<br>
                         <a href="#" onclick="showFormatHelp()" class="text-blue-500 hover:underline">查看格式说明</a>
                     </p>
                 </div>

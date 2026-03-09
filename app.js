@@ -4,6 +4,9 @@
 
 // 全局状态
 const state = {
+    // 工作区
+    currentWorkspaceId: null,
+    workspaces: [],
     // 分段语义详情任务
     segmentTasks: [],
     segmentTaskIndex: -1,
@@ -13,7 +16,7 @@ const state = {
     // 当前模式
     currentOutputGroup: 0,  // 当前数据组索引
     currentTab: 'text',     // 当前标签页（text 或 visual）
-    reviewMode: 'segment',  // 审核模式：segment（分段语义详情）或 profile（全篇语义画像）
+    reviewMode: 'segment',  // 审核模式：segment / profile / audiovisual
     // 分段语义详情评分（1-3分）
     ratings: {
         time: 0,
@@ -45,23 +48,69 @@ const state = {
         topic_consistency: '',
         core_claim: '',
         emotion_type: ''
+    },
+    // 基础音画质量任务
+    audiovisualTasks: [],
+    audiovisualTaskIndex: -1,
+    // 基础音画质量评分（0-2分）
+    audiovisualRatings: {
+        overall_quality: -1,
+        processing_elements: -1,
+        processing_elements_time: -1,
+        composition: -1,
+        composition_time: -1,
+        person: -1,
+        person_time: -1,
+        creature: -1,
+        creature_time: -1,
+        info_attributes: -1,
+        questionable_info: -1,
+        geographic_info: -1,
+        timeliness_info: -1,
+        vulgar_intent: -1,
+        promotional_intent: -1,
+        immoral_values: -1
+    },
+    audiovisualNotes: {
+        overall_quality: '',
+        processing_elements: '',
+        processing_elements_time: '',
+        composition: '',
+        composition_time: '',
+        person: '',
+        person_time: '',
+        creature: '',
+        creature_time: '',
+        info_attributes: '',
+        questionable_info: '',
+        geographic_info: '',
+        timeliness_info: '',
+        vulgar_intent: '',
+        promotional_intent: '',
+        immoral_values: ''
     }
 };
 
 // 获取当前模式的任务列表
 function getTasks() {
-    return state.reviewMode === 'segment' ? state.segmentTasks : state.profileTasks;
+    if (state.reviewMode === 'segment') return state.segmentTasks;
+    if (state.reviewMode === 'audiovisual') return state.audiovisualTasks;
+    return state.profileTasks;
 }
 
 // 获取当前模式的任务索引
 function getTaskIndex() {
-    return state.reviewMode === 'segment' ? state.segmentTaskIndex : state.profileTaskIndex;
+    if (state.reviewMode === 'segment') return state.segmentTaskIndex;
+    if (state.reviewMode === 'audiovisual') return state.audiovisualTaskIndex;
+    return state.profileTaskIndex;
 }
 
 // 设置当前模式的任务索引
 function setTaskIndex(index) {
     if (state.reviewMode === 'segment') {
         state.segmentTaskIndex = index;
+    } else if (state.reviewMode === 'audiovisual') {
+        state.audiovisualTaskIndex = index;
     } else {
         state.profileTaskIndex = index;
     }
@@ -76,6 +125,30 @@ const PROFILE_DIMENSIONS = [
     { key: 'topic_consistency', label: '主题一致性' },
     { key: 'core_claim', label: '核心观点' },
     { key: 'emotion_type', label: '情感类型' }
+];
+
+// 基础音画质量维度配置
+const AUDIOVISUAL_DIMENSIONS = [
+    { key: 'overall_quality', label: '总体质量', shortLabel: '总体' },
+    // 画面质量
+    { key: 'processing_elements', label: '加工元素', shortLabel: '加工' },
+    { key: 'processing_elements_time', label: '加工元素时间', shortLabel: '加工时间' },
+    { key: 'composition', label: '构图', shortLabel: '构图' },
+    { key: 'composition_time', label: '构图时间', shortLabel: '构图时间' },
+    // 内容主体
+    { key: 'person', label: '人物', shortLabel: '人物' },
+    { key: 'person_time', label: '人物时间', shortLabel: '人物时间' },
+    { key: 'creature', label: '生物', shortLabel: '生物' },
+    { key: 'creature_time', label: '生物时间', shortLabel: '生物时间' },
+    // 信息
+    { key: 'info_attributes', label: '信息属性', shortLabel: '信息' },
+    { key: 'questionable_info', label: '真实性存疑', shortLabel: '真实性' },
+    { key: 'geographic_info', label: '地理位置', shortLabel: '地理' },
+    { key: 'timeliness_info', label: '时效性', shortLabel: '时效' },
+    // 意图与价值
+    { key: 'vulgar_intent', label: '低俗意图', shortLabel: '低俗' },
+    { key: 'promotional_intent', label: '营销引流', shortLabel: '营销' },
+    { key: 'immoral_values', label: '违背道德', shortLabel: '道德' }
 ];
 
 // DOM 元素缓存
@@ -100,7 +173,9 @@ document.addEventListener('DOMContentLoaded', () => {
     initElements();
     console.log('视频播放器元素:', elements.videoPlayer);
     initEventListeners();
+    migrateToWorkspaces();
     loadFromLocalStorage();
+    renderWorkspaceSwitcher();
     updateUI();
     restoreSidebarState();
     restoreRatingPanelState();
@@ -110,6 +185,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // 强制清除所有数据（用于调试）
 function forceReset() {
+    // 清理所有工作区相关的 localStorage
+    Object.keys(localStorage).forEach(key => {
+        if (key.startsWith('ws:') || key === 'ws-registry' || key === 'ws-active') {
+            localStorage.removeItem(key);
+        }
+    });
+    // 清理旧格式键
     localStorage.removeItem('video-review-segment-tasks');
     localStorage.removeItem('video-review-segment-index');
     localStorage.removeItem('video-review-profile-tasks');
@@ -120,9 +202,150 @@ function forceReset() {
     state.segmentTaskIndex = -1;
     state.profileTasks = [];
     state.profileTaskIndex = -1;
+    state.audiovisualTasks = [];
+    state.audiovisualTaskIndex = -1;
+    state.workspaces = [];
+    state.currentWorkspaceId = null;
     location.reload();
 }
 window.forceReset = forceReset;
+
+// ============================================
+// 工作区管理
+// ============================================
+function getWorkspaceKey(wsId, suffix) {
+    return `ws:${wsId}:${suffix}`;
+}
+
+function saveWorkspaceRegistry() {
+    localStorage.setItem('ws-registry', JSON.stringify(state.workspaces));
+    localStorage.setItem('ws-active', state.currentWorkspaceId);
+}
+
+function loadWorkspaceRegistry() {
+    const raw = localStorage.getItem('ws-registry');
+    state.workspaces = raw ? JSON.parse(raw) : [];
+    state.currentWorkspaceId = localStorage.getItem('ws-active');
+}
+
+function migrateToWorkspaces() {
+    if (localStorage.getItem('ws-registry')) {
+        loadWorkspaceRegistry();
+        return;
+    }
+    // 首次迁移：将旧数据移入默认工作区
+    const defaultId = 'ws_default';
+    state.workspaces = [{ id: defaultId, name: '默认工作区', createdAt: Date.now() }];
+    state.currentWorkspaceId = defaultId;
+
+    const migrations = [
+        ['video-review-segment-tasks', 'segment-tasks'],
+        ['video-review-segment-index', 'segment-index'],
+        ['video-review-profile-tasks', 'profile-tasks'],
+        ['video-review-profile-index', 'profile-index'],
+        ['review-mode', 'review-mode']
+    ];
+    migrations.forEach(([oldKey, suffix]) => {
+        const value = localStorage.getItem(oldKey);
+        if (value !== null) {
+            localStorage.setItem(getWorkspaceKey(defaultId, suffix), value);
+            localStorage.removeItem(oldKey);
+        }
+    });
+    saveWorkspaceRegistry();
+}
+
+function createWorkspace(name) {
+    if (!name) {
+        name = prompt('输入工作区名称:', '新工作区');
+        if (!name || !name.trim()) return;
+        name = name.trim();
+    }
+    const id = 'ws_' + Date.now();
+    state.workspaces.push({ id, name, createdAt: Date.now() });
+    saveWorkspaceRegistry();
+    switchWorkspace(id);
+}
+
+function switchWorkspace(wsId) {
+    // 保存当前工作区数据
+    if (state.currentWorkspaceId) {
+        saveToLocalStorage();
+    }
+    // 重置内存状态
+    state.segmentTasks = [];
+    state.segmentTaskIndex = -1;
+    state.profileTasks = [];
+    state.profileTaskIndex = -1;
+    state.audiovisualTasks = [];
+    state.audiovisualTaskIndex = -1;
+    state.currentOutputGroup = 0;
+    resetRatings();
+    resetProfileRatings();
+    resetAudiovisualRatings();
+
+    // 切换
+    state.currentWorkspaceId = wsId;
+    saveWorkspaceRegistry();
+
+    // 加载新工作区数据
+    loadFromLocalStorage();
+
+    // 刷新 UI
+    renderWorkspaceSwitcher();
+    restoreReviewMode();
+    updateUI();
+}
+
+function deleteWorkspace(wsId) {
+    if (state.workspaces.length <= 1) {
+        alert('至少保留一个工作区');
+        return;
+    }
+    const ws = state.workspaces.find(w => w.id === wsId);
+    if (!confirm(`确定删除工作区「${ws.name}」？所有审查数据将丢失！`)) return;
+
+    ['segment-tasks', 'segment-index', 'profile-tasks', 'profile-index', 'audiovisual-tasks', 'audiovisual-index', 'review-mode'].forEach(suffix => {
+        localStorage.removeItem(getWorkspaceKey(wsId, suffix));
+    });
+    state.workspaces = state.workspaces.filter(w => w.id !== wsId);
+    saveWorkspaceRegistry();
+
+    if (state.currentWorkspaceId === wsId) {
+        switchWorkspace(state.workspaces[0].id);
+    } else {
+        renderWorkspaceSwitcher();
+    }
+}
+
+function renderWorkspaceSwitcher() {
+    const select = document.getElementById('workspace-select');
+    if (!select) return;
+    select.innerHTML = state.workspaces.map(ws =>
+        `<option value="${ws.id}" ${ws.id === state.currentWorkspaceId ? 'selected' : ''}>${ws.name}</option>`
+    ).join('');
+}
+
+function showWorkspaceMenu() {
+    const ws = state.workspaces.find(w => w.id === state.currentWorkspaceId);
+    if (!ws) return;
+    const action = prompt(
+        `工作区「${ws.name}」\n\n输入新名称可重命名，或输入 delete 删除：`,
+        ws.name
+    );
+    if (action === null) return;
+    if (action.toLowerCase() === 'delete') {
+        deleteWorkspace(ws.id);
+    } else if (action.trim()) {
+        ws.name = action.trim();
+        saveWorkspaceRegistry();
+        renderWorkspaceSwitcher();
+    }
+}
+
+window.createWorkspace = createWorkspace;
+window.switchWorkspace = switchWorkspace;
+window.showWorkspaceMenu = showWorkspaceMenu;
 
 function initElements() {
     elements.videoPlayer = document.getElementById('video-player');
@@ -249,10 +472,11 @@ function renderTimeline() {
         <div class="absolute h-full w-full bg-black opacity-20 rounded-full"></div>
     `;
 
-    // 严格只显示每个分段的开始时间作为分界点
+    // 显示每个分段的开始和结束时间作为分界点（尊重原始标注）
     const boundaryTimes = new Set();
     segments.forEach((seg) => {
         boundaryTimes.add(seg.start);
+        boundaryTimes.add(seg.end);
     });
 
     // 转换为数组并排序
@@ -546,11 +770,11 @@ function selectTask(index) {
     document.getElementById('empty-state').classList.add('hidden');
     document.getElementById('review-workspace').classList.remove('hidden');
     
-    const groupCount = task.model_outputs?.length || 1;
     const taskLabel = document.getElementById('current-task-label');
     if (taskLabel) {
-        taskLabel.textContent = `任务 ${index + 1}/${tasks.length}` + 
-            (groupCount > 1 ? ` (${groupCount}组数据)` : '');
+        const labelText = task.id || task.rawId || `任务 ${index + 1}`;
+        taskLabel.querySelector('div').textContent = labelText;
+        taskLabel.classList.remove('hidden');
     }
 
     // 加载视频
@@ -562,6 +786,12 @@ function selectTask(index) {
     }
     elements.videoPlayer.src = videoUrl;
     elements.videoPlayer.load();
+
+    // 重新应用当前倍速设置（load() 会重置 playbackRate）
+    const rateSelect = document.getElementById('playback-rate');
+    if (rateSelect) {
+        elements.videoPlayer.playbackRate = parseFloat(rateSelect.value);
+    }
 
     // 渲染数据组切换器
     renderOutputGroupSwitcher(task);
@@ -580,6 +810,8 @@ function selectTask(index) {
     // 根据当前模式渲染对应内容
     if (state.reviewMode === 'segment') {
         switchTab(state.currentTab);
+    } else if (state.reviewMode === 'audiovisual') {
+        renderAudiovisualContent();
     } else {
         renderProfileContent();
     }
@@ -592,8 +824,8 @@ function renderOutputGroupSwitcher(task) {
     
     const groupCount = task.model_outputs?.length || 0;
     
-    if (groupCount <= 1) {
-        // 只有一组或没有数据，隐藏切换器
+    if (groupCount === 0) {
+        // 没有数据，隐藏切换器
         switcher.classList.add('hidden');
         return;
     }
@@ -603,7 +835,10 @@ function renderOutputGroupSwitcher(task) {
     
     // 渲染按钮 - 使用模型名称
     buttonsContainer.innerHTML = task.model_outputs.map((_, i) => {
-        const review = task.reviews?.[i];
+        const reviewsArr = state.reviewMode === 'segment' ? task.reviews
+            : state.reviewMode === 'audiovisual' ? task.audiovisualReviews
+            : task.profileReviews;
+        const review = reviewsArr?.[i];
         const isComplete = review?.completed;
         const isActive = i === state.currentOutputGroup;
         const modelName = task.model_names?.[i] || `模型${i + 1}`;
@@ -645,6 +880,8 @@ function switchOutputGroup(groupIndex) {
     // 根据当前模式渲染对应内容
     if (state.reviewMode === 'segment') {
         switchTab(state.currentTab);
+    } else if (state.reviewMode === 'audiovisual') {
+        renderAudiovisualContent();
     } else {
         renderProfileContent();
     }
@@ -660,38 +897,35 @@ function updateModelOutput() {
     }
 }
 
-// 保存当前数据组的评分
+// 保存当前数据组的评分（基础实现，后续被各模式重写覆盖）
 function saveReviewForCurrentGroup() {
     const task = getCurrentTask();
     if (!task) return;
-    
-    // 收集每个维度的备注
+
     ['time', 'text', 'visual', 'keyframe'].forEach(dim => {
         const noteInput = document.getElementById(`note-${dim}`);
         if (noteInput) state.notes[dim] = noteInput.value;
     });
-    
-    // 确保 reviews 数组存在
+
     if (!task.reviews) {
         task.reviews = task.model_outputs?.map(() => null) || [null];
     }
-    
-    // 保存到当前组
+
     task.reviews[state.currentOutputGroup] = {
         ratings: { ...state.ratings },
         notes: { ...state.notes },
-        completed: Object.values(state.ratings).some(r => r > 0), // 只要有评分就标记为已完成
+        completed: Object.values(state.ratings).some(r => r > 0),
         timestamp: new Date().toISOString()
     };
 }
 
-// 加载当前数据组的评分
+// 加载当前数据组的评分（基础实现，后续被各模式重写覆盖）
 function loadReviewForCurrentGroup() {
     const task = getCurrentTask();
     if (!task) return;
-    
+
     const review = task.reviews?.[state.currentOutputGroup];
-    
+
     if (review) {
         state.ratings = { ...review.ratings };
         state.notes = { ...review.notes };
@@ -712,40 +946,60 @@ function submitReview() {
 
     // 保存当前数据组的评分
     saveReviewForCurrentGroup();
-    
+
     // 更新切换器显示（显示已完成状态）
     renderOutputGroupSwitcher(task);
-    
+
+    // 根据模式确定使用哪个 reviews 数组和 review 标记
+    const reviewsKey = state.reviewMode === 'segment' ? 'reviews'
+        : state.reviewMode === 'audiovisual' ? 'audiovisualReviews'
+        : 'profileReviews';
+    const reviewKey = state.reviewMode === 'segment' ? 'review'
+        : state.reviewMode === 'audiovisual' ? 'audiovisualReview'
+        : 'profileReview';
+
     // 检查是否有多组数据
     const groupCount = task.model_outputs?.length || 1;
-    
+
     if (groupCount > 1) {
-        // 检查是否还有未完成的数据组
-        const nextIncompleteGroup = task.reviews?.findIndex((r, i) => i > state.currentOutputGroup && !r?.completed);
-        
+        const nextIncompleteGroup = task[reviewsKey]?.findIndex((r, i) => i > state.currentOutputGroup && !r?.completed);
+
         if (nextIncompleteGroup !== -1) {
-            // 跳转到下一个未完成的数据组
             switchOutputGroup(nextIncompleteGroup);
             return;
         }
-        
-        // 检查当前任务所有组是否都完成了
-        const allGroupsComplete = task.reviews?.every(r => r?.completed);
+
+        const allGroupsComplete = task[reviewsKey]?.every(r => r?.completed);
         if (allGroupsComplete) {
-            // 标记任务整体完成
-            task.review = {
+            task[reviewKey] = {
                 completed: true,
                 timestamp: new Date().toISOString()
             };
         }
     } else {
         // 单组数据，直接标记完成
-        task.review = {
-            ratings: { ...state.ratings },
-            notes: { ...state.notes },
-            completed: true,
-            timestamp: new Date().toISOString()
-        };
+        if (state.reviewMode === 'segment') {
+            task.review = {
+                ratings: { ...state.ratings },
+                notes: { ...state.notes },
+                completed: true,
+                timestamp: new Date().toISOString()
+            };
+        } else if (state.reviewMode === 'audiovisual') {
+            task.audiovisualReview = {
+                ratings: { ...state.audiovisualRatings },
+                notes: { ...state.audiovisualNotes },
+                completed: true,
+                timestamp: new Date().toISOString()
+            };
+        } else {
+            task.profileReview = {
+                ratings: { ...state.profileRatings },
+                notes: { ...state.profileNotes },
+                completed: true,
+                timestamp: new Date().toISOString()
+            };
+        }
     }
 
     saveToLocalStorage();
@@ -763,15 +1017,15 @@ function goToNextIncomplete() {
     const tasks = getTasks();
     const startIndex = getTaskIndex();
     if (tasks.length === 0) return;
-    
+
+    const getComplete = (t) => state.reviewMode === 'segment' ? t.review?.completed
+        : state.reviewMode === 'audiovisual' ? t.audiovisualReview?.completed
+        : t.profileReview?.completed;
+
     let nextIndex = (startIndex + 1) % tasks.length;
-    
+
     while (nextIndex !== startIndex) {
-        // 检查当前模式对应的完成状态
-        const isComplete = state.reviewMode === 'segment' 
-            ? tasks[nextIndex].review?.completed 
-            : tasks[nextIndex].profileReview?.completed;
-        if (!isComplete) {
+        if (!getComplete(tasks[nextIndex])) {
             selectTask(nextIndex);
             return;
         }
@@ -779,10 +1033,7 @@ function goToNextIncomplete() {
     }
 
     // 所有任务都完成了
-    const currentComplete = state.reviewMode === 'segment'
-        ? tasks[startIndex]?.review?.completed
-        : tasks[startIndex]?.profileReview?.completed;
-    if (currentComplete) {
+    if (getComplete(tasks[startIndex])) {
         alert('🎉 当前模式所有任务已完成！');
     }
 }
@@ -803,11 +1054,11 @@ function renderTaskList() {
 
     elements.taskList.innerHTML = tasks.map((task, index) => {
         // 根据当前模式判断完成状态
-        const isComplete = state.reviewMode === 'segment' 
-            ? task.review?.completed 
+        const isComplete = state.reviewMode === 'segment' ? task.review?.completed
+            : state.reviewMode === 'audiovisual' ? task.audiovisualReview?.completed
             : task.profileReview?.completed;
         const isActive = index === currentIndex;
-        
+
         // 根据模式计算平均评分
         let avgRating = '-';
         if (state.reviewMode === 'segment' && task.review?.ratings) {
@@ -817,15 +1068,22 @@ function renderTaskList() {
             if (ratings.length > 0) {
                 avgRating = (ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(1);
             }
+        } else if (state.reviewMode === 'audiovisual' && task.audiovisualReview?.ratings) {
+            const ratings = Object.values(task.audiovisualReview.ratings).filter(r => r >= 0);
+            if (ratings.length > 0) {
+                avgRating = (ratings.reduce((a, b) => a + b, 0) / ratings.length).toFixed(1);
+            }
         }
 
+        const displayName = task.id || task.rawId || ('任务 ' + (index + 1));
+
         return `
-            <div class="task-item p-3 border-b cursor-pointer ${isActive ? 'active' : ''}" 
+            <div class="task-item p-3 border-b cursor-pointer ${isActive ? 'active' : ''}"
                  onclick="selectTask(${index})">
                 <div class="flex items-center justify-between">
                     <div class="flex items-center">
                         <span class="mdi ${isComplete ? 'mdi-check-circle text-green-500' : 'mdi-circle-outline text-gray-300'} mr-2"></span>
-                        <span class="text-sm font-medium truncate max-w-[150px]">${task.id || '任务 ' + (index + 1)}</span>
+                        <span class="text-sm font-medium truncate max-w-[150px] instant-tip" data-tip="${escapeHTML(displayName)}">${escapeHTML(displayName)}</span>
                     </div>
                     ${isComplete ? `<span class="text-xs text-yellow-500"><span class="mdi mdi-star"></span> ${avgRating}</span>` : ''}
                 </div>
@@ -839,9 +1097,9 @@ function updateProgress() {
     const total = tasks.length;
     // 根据当前模式判断完成状态
     const completed = tasks.filter(t => {
-        return state.reviewMode === 'segment' 
-            ? t.review?.completed 
-            : t.profileReview?.completed;
+        if (state.reviewMode === 'segment') return t.review?.completed;
+        if (state.reviewMode === 'audiovisual') return t.audiovisualReview?.completed;
+        return t.profileReview?.completed;
     }).length;
     const percent = total > 0 ? (completed / total) * 100 : 0;
 
@@ -860,41 +1118,794 @@ function updateUI() {
 // 导入/导出
 // ============================================
 function importTasks() {
+    // 清空已选文件列表
+    state._pendingFiles = [];
+    renderPendingFileList();
+    document.getElementById('import-file').value = '';
     document.getElementById('import-modal').classList.remove('hidden');
     document.getElementById('import-modal').classList.add('flex');
 }
 
 function closeImportModal() {
+    state._pendingFiles = [];
     document.getElementById('import-modal').classList.add('hidden');
     document.getElementById('import-modal').classList.remove('flex');
 }
 
+// 文件选择回调：累积添加文件
+function onImportFileChange(input) {
+    if (!state._pendingFiles) state._pendingFiles = [];
+    const newFiles = Array.from(input.files);
+    newFiles.forEach(f => {
+        // 去重：同名文件不重复添加
+        if (!state._pendingFiles.some(existing => existing.name === f.name && existing.size === f.size)) {
+            state._pendingFiles.push(f);
+        }
+    });
+    // 清空 input 以便下次选同一文件也能触发 change
+    input.value = '';
+    renderPendingFileList();
+}
+window.onImportFileChange = onImportFileChange;
+
+// 渲染已选文件列表
+function renderPendingFileList() {
+    const container = document.getElementById('import-file-list');
+    if (!container) return;
+    const files = state._pendingFiles || [];
+    if (files.length === 0) {
+        container.innerHTML = '';
+        return;
+    }
+    container.innerHTML = files.map((f, i) => {
+        const isJsonl = f.name.endsWith('.jsonl');
+        const isExcel = f.name.endsWith('.xlsx') || f.name.endsWith('.xls');
+        const icon = isJsonl ? 'mdi-code-braces' : isExcel ? 'mdi-file-excel-outline' : 'mdi-file-outline';
+        const sizeKB = (f.size / 1024).toFixed(1);
+        return `<div class="flex items-center justify-between px-3 py-1.5 bg-gray-50 rounded text-sm">
+            <span class="flex items-center gap-1.5 text-gray-700 truncate">
+                <span class="mdi ${icon} text-gray-400"></span>
+                ${f.name}
+                <span class="text-gray-400 text-xs">${sizeKB}KB</span>
+            </span>
+            <button onclick="removePendingFile(${i})" class="text-gray-400 hover:text-red-500 ml-2">
+                <span class="mdi mdi-close text-sm"></span>
+            </button>
+        </div>`;
+    }).join('');
+}
+window.renderPendingFileList = renderPendingFileList;
+
+// 移除已选文件
+function removePendingFile(index) {
+    if (state._pendingFiles) {
+        state._pendingFiles.splice(index, 1);
+        renderPendingFileList();
+    }
+}
+window.removePendingFile = removePendingFile;
+
 function confirmImport() {
-    const fileInput = document.getElementById('import-file');
-    const file = fileInput.files[0];
-    
-    if (!file) {
-        alert('请选择 Excel 文件');
+    const files = state._pendingFiles || [];
+
+    if (files.length === 0) {
+        alert('请先选择文件');
         return;
     }
 
-    if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
-        alert('请选择 Excel 格式文件（.xlsx 或 .xls）');
+    // 检查文件类型一致性
+    const jsonlFiles = files.filter(f => f.name.endsWith('.jsonl'));
+    const excelFiles = files.filter(f => f.name.endsWith('.xlsx') || f.name.endsWith('.xls'));
+    const otherFiles = files.filter(f => !f.name.endsWith('.jsonl') && !f.name.endsWith('.xlsx') && !f.name.endsWith('.xls'));
+
+    if (otherFiles.length > 0) {
+        alert('请选择 Excel (.xlsx/.xls) 或 JSONL (.jsonl) 格式文件');
         return;
     }
+
+    if (jsonlFiles.length > 0 && excelFiles.length > 0) {
+        alert('不支持同时导入 Excel 和 JSONL 文件，请分开导入');
+        return;
+    }
+
+    if (excelFiles.length > 1) {
+        alert('Excel 文件只能选择一个');
+        return;
+    }
+
+    // 单个 Excel 文件导入
+    if (excelFiles.length === 1) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const data = parseExcel(e.target.result);
+                processImportData(data);
+            } catch (err) {
+                alert('文件解析失败: ' + err.message);
+                console.error('解析错误:', err);
+            }
+        };
+        reader.readAsArrayBuffer(excelFiles[0]);
+        return;
+    }
+
+    // 一个或多个 JSONL 文件导入
+    importMultipleJsonl(jsonlFiles);
+}
+
+// 导入多个 JSONL 文件，按视频URL/nid合并为多模型对比
+function importMultipleJsonl(files) {
+    let loadedCount = 0;
+    // 每个文件解析结果: { modelName, tasks[] }
+    const fileResults = new Array(files.length);
+
+    files.forEach((file, fileIndex) => {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                // 模型名：优先从 JSONL 行内 model_name 字段取，否则用文件名（去后缀）
+                const defaultModelName = file.name.replace(/\.jsonl$/i, '');
+                const tasks = parseJsonl(e.target.result);
+                fileResults[fileIndex] = { defaultModelName, tasks };
+            } catch (err) {
+                console.error(`文件 ${file.name} 解析失败:`, err);
+                fileResults[fileIndex] = { defaultModelName: file.name, tasks: [] };
+            }
+
+            loadedCount++;
+            if (loadedCount === files.length) {
+                // 所有文件加载完毕，执行合并
+                try {
+                    const merged = mergeJsonlTasks(fileResults);
+                    processImportData(merged);
+                } catch (err) {
+                    alert('合并失败: ' + err.message);
+                    console.error('合并错误:', err);
+                }
+            }
+        };
+        reader.readAsText(file, 'UTF-8');
+    });
+}
+
+// ============================================
+// JSONL 文件解析
+// ============================================
+function parseJsonl(content) {
+    const lines = content.split('\n').filter(line => line.trim());
+    const tasks = [];
     
-    // Excel文件使用ArrayBuffer读取
-    const reader = new FileReader();
-    reader.onload = (e) => {
+    lines.forEach((line, lineIndex) => {
         try {
-            const data = parseExcel(e.target.result);
-            processImportData(data);
+            // 尝试解析单行 JSON，带容错处理
+            let jsonStr = line.trim();
+            if (!jsonStr) return;
+            
+            // 修复可能的 JSON 格式问题
+            jsonStr = fixMissingCommas(jsonStr);
+            
+            const obj = JSON.parse(jsonStr);
+            
+            // 跳过没有视频的行（兼容 videos 数组和 video_url 字符串）
+            if (!(obj.videos && obj.videos.length) && !obj.video_url) {
+                console.warn(`第 ${lineIndex + 1} 行：缺少视频URL，跳过`);
+                return;
+            }
+            
+            // 转换为标准任务格式
+            const task = convertJsonlToTask(obj, lineIndex);
+            if (task) {
+                tasks.push(task);
+            }
         } catch (err) {
-            alert('Excel 解析失败: ' + err.message);
-            console.error('Excel解析错误:', err);
+            console.warn(`第 ${lineIndex + 1} 行解析失败:`, err.message);
         }
+    });
+    
+    console.log(`JSONL 解析完成，共 ${tasks.length} 个有效任务`);
+    return tasks;
+}
+
+// 从 cot（chain-of-thought）字段提取结构化数据，作为 response 为空时的 fallback
+function extractResponseFromCot(cot) {
+    if (!cot || typeof cot !== 'string') return null;
+    const text = cot.trim();
+    if (!text) return null;
+
+    // 先尝试从 cot 中提取 JSON 代码块或 <json_output> 标签
+    const jsonBlocks = text.match(/```(?:json)?\s*\n([\s\S]*?)```/g);
+    const jsonOutputTags = text.match(/<json_output>\s*([\s\S]*?)\s*<(?:\/json_output|json_output)>/g);
+    const allBlocks = [];
+    if (jsonBlocks) {
+        for (const block of jsonBlocks) {
+            allBlocks.push(block.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '').trim());
+        }
+    }
+    if (jsonOutputTags) {
+        for (const tag of jsonOutputTags) {
+            allBlocks.push(tag.replace(/<\/?json_output>/g, '').trim());
+        }
+    }
+    for (const content of allBlocks) {
+        try { return JSON.parse(content); } catch (_) {}
+        try { return JSON.parse(pythonDictToJson(content)); } catch (_) {}
+        try { return JSON.parse(tryFixTruncatedArray(content)); } catch (_) {}
+    }
+
+    // 解析 Markdown 步骤格式，提取分段信息
+    // 支持两种格式：
+    //   格式A（步骤式）：步骤1分段，步骤2文案，步骤3画面，步骤4关键帧
+    //   格式B（分段列表式）：每段包含时间、文案、画面、关键帧
+    const segments = [];
+
+    // 格式B：按分段编号列表式（"1. **标题**：[start, end]" 或 "- 分段1：[0, 28]"）
+    // 每个分段下方包含文案、画面、关键帧子项
+    const segBlocks = text.split(/\n(?=\d+[\.\、）)]\s*\*{0,2})/);
+    let foundListFormat = false;
+
+    for (const block of segBlocks) {
+        // 匹配分段头：数字. **标题**：[start, end] 或 数字. 标题 [start, end]
+        const headerMatch = block.match(/^\d+[\.\、）)]\s*\*{0,2}([^*\n]*?)\*{0,2}\s*[:：]?\s*\[(\d+\.?\d*)\s*[,，]\s*(\d+\.?\d*)\]/);
+        if (!headerMatch) continue;
+        foundListFormat = true;
+
+        const start = parseFloat(headerMatch[2]);
+        const end = parseFloat(headerMatch[3]);
+
+        // 提取文案（"文案："或"- 文案："后的内容）
+        const textMatch = block.match(/(?:文案|文字|text)\s*[:：]\s*([\s\S]*?)(?=\n\s*[-*]?\s*(?:画面|视觉|visual|关键帧|key_frame|$))/i);
+        const segText = textMatch ? textMatch[1].replace(/\n/g, ' ').trim().replace(/^[""]|[""]$/g, '') : '';
+
+        // 提取画面描述（"画面描述："或"- 画面："后的内容）
+        const visMatch = block.match(/(?:画面描述?|视觉描述?|visual|vis)\s*[:：]\s*([\s\S]*?)(?=\n\s*[-*]?\s*(?:关键帧|key_frame|$)|\n\n)/i);
+        const segVis = visMatch ? visMatch[1].replace(/\n/g, ' ').trim() : '';
+
+        // 提取关键帧
+        const keyframes = [];
+        const kfRegex = /(?:关键帧\d*|时间[点：:]?\s*)\s*[:：]?\s*(\d+\.?\d*)\s*秒?\s*[,，：:]\s*([\s\S]*?)(?=\n\s*(?:\d+[\.\、]|关键帧|时间点|\*|$)|\n\n|$)/gi;
+        let kfMatch;
+        while ((kfMatch = kfRegex.exec(block)) !== null) {
+            keyframes.push({
+                time: parseFloat(kfMatch[1]),
+                label: kfMatch[2].replace(/\n/g, ' ').trim(),
+                reason: ''
+            });
+        }
+
+        segments.push({
+            start, end,
+            label: `片段 ${segments.length + 1}`,
+            description: segText,
+            visual: segVis,
+            keyframes
+        });
+    }
+
+    if (foundListFormat && segments.length > 0) {
+        console.log(`从 cot 字段提取到 ${segments.length} 个分段（列表格式）`);
+        return { _from_cot: true, segment_detail: segments.map(s => ({
+            time: [s.start, s.end],
+            text: s.description,
+            vis: s.visual,
+            key_frame: s.keyframes.map(kf => ({ time: kf.time, desc: kf.label }))
+        }))};
+    }
+
+    // 格式A：步骤式，从各步骤中分别提取时间、文案、画面、关键帧
+    // 步骤1/分段：提取时间范围
+    const step1Match = text.match(/(?:步骤\s*1|分段|step\s*1)[\s\S]*?(?=###\s*步骤\s*2|###\s*(?:生成)?文案|$)/i);
+    if (step1Match) {
+        const timeRanges = [];
+        const rangeRegex = /\[(\d+\.?\d*)\s*[,，]\s*(\d+\.?\d*)\]/g;
+        let rm;
+        while ((rm = rangeRegex.exec(step1Match[0])) !== null) {
+            timeRanges.push([parseFloat(rm[1]), parseFloat(rm[2])]);
+        }
+
+        if (timeRanges.length > 0) {
+            // 为每个分段初始化
+            timeRanges.forEach((tr, i) => {
+                segments.push({
+                    start: tr[0], end: tr[1],
+                    label: `片段 ${i + 1}`,
+                    description: '', visual: '', keyframes: []
+                });
+            });
+
+            // 步骤2/文案
+            const step2Match = text.match(/(?:步骤\s*2|生成文案|step\s*2)[\s\S]*?(?=###\s*步骤\s*3|###\s*(?:生成)?画面|$)/i);
+            if (step2Match) {
+                const captions = step2Match[0].match(/(?:[""])([\s\S]*?)(?:[""])/g);
+                if (captions) {
+                    captions.forEach((c, i) => {
+                        if (i < segments.length) {
+                            segments[i].description = c.replace(/^[""]|[""]$/g, '').trim();
+                        }
+                    });
+                } else {
+                    // 只有一段且没有引号包裹：取整段文字
+                    if (segments.length === 1) {
+                        const lines = step2Match[0].split('\n').filter(l => l.trim() && !l.match(/^#+|^步骤/));
+                        segments[0].description = lines.join(' ').trim().replace(/^[""]|[""]$/g, '');
+                    }
+                }
+            }
+
+            // 步骤3/画面
+            const step3Match = text.match(/(?:步骤\s*3|生成画面|画面描述|step\s*3)[\s\S]*?(?=###\s*步骤\s*4|###\s*(?:抽取)?关键帧|$)/i);
+            if (step3Match) {
+                // 按段落拆分
+                const visBlocks = step3Match[0].split(/\n(?=\d+[-\.\、）)]|\n)/);
+                let visIdx = 0;
+                for (const vb of visBlocks) {
+                    const stripped = vb.replace(/^\d+[-\.\、）)]\s*/, '').replace(/^#+.*\n/, '').trim();
+                    if (stripped && visIdx < segments.length) {
+                        // 检查是否带时间范围开头
+                        const timePrefix = stripped.match(/^(\d+\.?\d*)\s*[-–]\s*(\d+\.?\d*)\s*秒?\s*[,，：:]\s*/);
+                        if (timePrefix) {
+                            segments[visIdx].visual = stripped.slice(timePrefix[0].length).trim();
+                        } else if (stripped.length > 20) {
+                            segments[visIdx].visual = stripped;
+                        }
+                        visIdx++;
+                    }
+                }
+                // 如果没拆到，但只有一段，取全部
+                if (visIdx === 0 && segments.length === 1) {
+                    const lines = step3Match[0].split('\n').filter(l => l.trim() && !l.match(/^#+|^步骤/));
+                    segments[0].visual = lines.join(' ').trim();
+                }
+            }
+
+            // 步骤4/关键帧
+            const step4Match = text.match(/(?:步骤\s*4|抽取关键帧|关键帧|step\s*4)[\s\S]*?(?=###\s*步骤\s*5|###\s*结果|$)/i);
+            if (step4Match) {
+                const kfRegex2 = /(?:\d+[\.\、）)])?\s*(?:\*{2})?(?:时间[点：:]?\s*)?(\d+\.?\d*)\s*秒?\s*(?:\*{2})?(?:[,，：:])\s*([\s\S]*?)(?=\n\s*\d+[\.\、）)]|\n\s*\*{2}|$)/g;
+                let km;
+                while ((km = kfRegex2.exec(step4Match[0])) !== null) {
+                    const kfTime = parseFloat(km[1]);
+                    const kfDesc = km[2].replace(/\n/g, ' ').trim();
+                    // 分配给最近的分段
+                    for (let i = segments.length - 1; i >= 0; i--) {
+                        if (kfTime >= segments[i].start) {
+                            segments[i].keyframes.push({ time: kfTime, label: kfDesc, reason: '' });
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (segments.length > 0) {
+                console.log(`从 cot 字段提取到 ${segments.length} 个分段（步骤格式）`);
+                return { _from_cot: true, segment_detail: segments.map(s => ({
+                    time: [s.start, s.end],
+                    text: s.description,
+                    vis: s.visual,
+                    key_frame: s.keyframes.map(kf => ({ time: kf.time, desc: kf.label }))
+                }))};
+            }
+        }
+    }
+
+    return null;
+}
+
+// 将 JSONL 对象转换为任务格式
+function convertJsonlToTask(obj, index) {
+    const rawId = obj.data_id || obj.nid || `task-${index + 1}`;
+    const title = obj.title || obj.video_title || obj.name || '';
+    const task = {
+        id: title || rawId,
+        rawId: rawId,
+        video_url: (obj.videos && obj.videos[0]) || obj.video_url || ''
     };
-    reader.readAsArrayBuffer(file);
+
+    // 处理 response 字段
+    let response = obj.response;
+
+    // 兼容 messages 格式（OpenAI chat 格式）：从 assistant 消息中提取 response
+    if (response === undefined && Array.isArray(obj.messages)) {
+        const assistantMsg = obj.messages.find(m => m.role === 'assistant');
+        if (assistantMsg) {
+            // content 可能是字符串或数组
+            if (typeof assistantMsg.content === 'string') {
+                response = assistantMsg.content;
+            } else if (Array.isArray(assistantMsg.content)) {
+                const textPart = assistantMsg.content.find(c => c.type === 'text');
+                if (textPart) response = textPart.text;
+            }
+        }
+    }
+
+    // response 可能是字符串（如被 <json_output> 标签包裹），需要先解析
+    if (typeof response === 'string') {
+        let respStr = response.trim();
+        if (!respStr) {
+            response = null;
+        } else {
+            // 检测多代码块格式：```json ... ``` ```json ... ```
+            let cleaned = respStr.replace(/<think>[\s\S]*?<\/think>/g, '').replace(/<\/?json_output>/g, '').trim();
+            const codeBlocks = cleaned.match(/```(?:json)?\s*\n([\s\S]*?)```/g);
+            if (codeBlocks && codeBlocks.length >= 2) {
+                // 多代码块：分别解析，合并结果
+                let merged = null;
+                for (const block of codeBlocks) {
+                    const content = block.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '').trim();
+                    let parsed = null;
+                    try { parsed = JSON.parse(content); } catch (_) {}
+                    if (!parsed) { try { parsed = JSON.parse(tryFixTruncatedArray(content)); } catch (_) {} }
+                    if (!parsed) continue;
+                    if (!merged) {
+                        merged = Array.isArray(parsed) ? { segment_detail: parsed } : parsed;
+                    } else {
+                        if (typeof parsed === 'object' && !Array.isArray(parsed)) {
+                            Object.assign(merged, parsed);
+                        }
+                    }
+                }
+                if (merged) { response = merged; }
+                else { response = null; }
+            } else {
+                // 单块/无代码块：走原有逻辑
+                respStr = extractJsonFromText(respStr);
+                try {
+                    response = JSON.parse(respStr);
+                } catch (e) {
+                    // 尝试剥离 Python 风格的 segment_output/segment_detail 外层包裹
+                    const wrapperMatch = respStr.match(/^{['"](segment_output|segment_detail)['"]\s*:\s*/);
+                    if (wrapperMatch) {
+                        let inner = respStr.slice(wrapperMatch[0].length);
+                        let depth = 0, inStr = false, strChar = '', esc = false, valueEnd = -1;
+                        for (let ci = 0; ci < inner.length; ci++) {
+                            const ch = inner[ci];
+                            if (esc) { esc = false; continue; }
+                            if (inStr) {
+                                if (ch === '\\') { esc = true; continue; }
+                                if (ch === strChar) { inStr = false; }
+                                continue;
+                            }
+                            if (ch === '"' || ch === "'") { inStr = true; strChar = ch; continue; }
+                            if (ch === '[' || ch === '{') depth++;
+                            else if (ch === ']' || ch === '}') {
+                                depth--;
+                                if (depth === 0) { valueEnd = ci; break; }
+                            }
+                        }
+                        if (valueEnd !== -1) {
+                            const valueStr = inner.substring(0, valueEnd + 1);
+                            try {
+                                const innerData = JSON.parse(valueStr);
+                                response = { [wrapperMatch[1]]: innerData };
+                            } catch (_) {
+                                try {
+                                    const innerData = JSON.parse(pythonDictToJson(valueStr));
+                                    response = { [wrapperMatch[1]]: innerData };
+                                } catch (_2) {
+                                    response = null;
+                                }
+                            }
+                        }
+                    }
+                    if (!response) {
+                        let converted = pythonDictToJson(respStr);
+                        try {
+                            response = JSON.parse(converted);
+                        } catch (e2) {
+                            try {
+                                response = JSON.parse(tryFixTruncatedArray(converted));
+                            } catch (e3) {
+                                console.warn(`第 ${index + 1} 行 response 字符串解析失败:`, e.message);
+                                response = null;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // response 为空时，尝试从 cot 字段提取数据
+    if (!response && obj.cot) {
+        response = extractResponseFromCot(obj.cot);
+    }
+
+    // response 可能是 null、数组或单个对象
+    if (!response) {
+        // 没有分段数据，仍然可以导入（只有视频）
+        task.model_output = { segments: [] };
+        task.model_outputs = [{ segments: [] }];
+        task.model_names = [obj.model_name || '默认'];
+        task.reviews = [null];
+        return task;
+    }
+
+    // 检测是否为基础音画质量格式
+    if (response.vision_quality || response.audiovisual_integration || response.content_subject) {
+        const avOutput = { audiovisual: response };
+        task.model_output = avOutput;
+        task.model_outputs = [avOutput];
+        task.model_names = [obj.model_name || '默认'];
+        task.reviews = [null];
+        return task;
+    }
+
+    // 解包 array-wrapped 格式：[{"segment_detail": [...]}] → {"segment_detail": [...]}
+    if (Array.isArray(response) && response.length === 1 && typeof response[0] === 'object' && !Array.isArray(response[0]) && (response[0].segment_detail || response[0].segment_output)) {
+        response = response[0];
+    }
+
+    // 解包 segment_output / segment_detail 包裹格式
+    let segmentData = response;
+    let profileData = null;
+    if (response.segment_output !== undefined) {
+        segmentData = response.segment_output;
+    } else if (response.segment_detail !== undefined) {
+        segmentData = response.segment_detail;
+    }
+
+    // 检测是否同时包含画像数据（多代码块合并的情况）
+    if (typeof response === 'object' && !Array.isArray(response)) {
+        if (response.narrative_type || response.visual_type || response.summary || response.global_profile) {
+            profileData = response;
+        }
+    }
+
+    // 处理 time-range dict 格式：{'0-29': {text, vis}, '29-49': {...}, ...}
+    // 或单段 dict 格式：{time: [...], text: '...', vis: '...'}
+    if (segmentData && typeof segmentData === 'object' && !Array.isArray(segmentData)) {
+        if (segmentData.time !== undefined || segmentData.text !== undefined || segmentData.vis !== undefined) {
+            // 单段 dict，直接包装成数组
+            segmentData = [segmentData];
+        } else {
+            // time-range dict: keys 是 '0-29'、'29-49' 等
+            // 只取以数字开头的 key（时间范围段），忽略 key_frame/summary 等字段
+            const entries = Object.entries(segmentData).filter(([k]) =>
+                /^\d/.test(k)
+            );
+            // 提取顶层 key_frame（可能存在于 segment_output 同级）
+            const topKeyFrames = Array.isArray(segmentData.key_frame) ? segmentData.key_frame : [];
+            if (entries.length > 0 && /^\d/.test(entries[0][0])) {
+                segmentData = entries.map(([k, v]) => {
+                    // 解析 '0-29' 或 '0-29s' 为 time
+                    const timeMatch = k.match(/^(\d+)\s*[-–]\s*(\d+)/);
+                    const seg = typeof v === 'object' ? { ...v } : { text: String(v) };
+                    if (timeMatch && !seg.time) {
+                        seg.time = [parseFloat(timeMatch[1]), parseFloat(timeMatch[2])];
+                    }
+                    // 若段内无 key_frame，从顶层 key_frame 按时间匹配分配
+                    if (!seg.key_frame && topKeyFrames.length > 0 && seg.time) {
+                        const segStart = seg.time[0], segEnd = seg.time[1];
+                        const matched = topKeyFrames.filter(kf => {
+                            const t = typeof kf === 'string' ? parseFloat(kf) : (kf.time || 0);
+                            return t >= segStart && t <= segEnd;
+                        });
+                        if (matched.length > 0) seg.key_frame = matched;
+                    }
+                    return seg;
+                });
+            } else {
+                // 无法识别的 dict 格式，当空处理
+                segmentData = [];
+            }
+        }
+    }
+
+    // 统一处理为数组
+    const responseArray = Array.isArray(segmentData) ? segmentData : [segmentData];
+    
+    // 转换分段数据
+    const segments = responseArray.map((seg, segIdx) => {
+        // 时间字段：可能是 [start, end] 数组或 {start, end} 对象
+        let start = 0, end = 0;
+        if (Array.isArray(seg.time)) {
+            start = seg.time[0] || 0;
+            end = seg.time[1] || 0;
+        } else if (seg.time && typeof seg.time === 'object') {
+            start = seg.time.start || 0;
+            end = seg.time.end || 0;
+        } else if (seg.start !== undefined) {
+            start = seg.start;
+            end = seg.end || 0;
+        }
+        
+        // 处理关键帧，兼容 reason / 选取理由 字段，以及纯字符串数组
+        let keyframes = [];
+        if (seg.key_frame && Array.isArray(seg.key_frame)) {
+            keyframes = seg.key_frame.map(kf => {
+                if (typeof kf === 'string') {
+                    return { time: 0, label: kf.replace(/[\n\r]+/g, ' ').trim(), reason: '' };
+                }
+                return {
+                    time: kf.time || 0,
+                    label: (kf.desc || kf.label || '').replace(/[\n\r]+/g, ' ').trim(),
+                    reason: kf.reason || kf['选取理由'] || ''
+                };
+            });
+        }
+        
+        return {
+            start: start,
+            end: end,
+            label: `片段 ${segIdx + 1}`,
+            description: seg.text || '',
+            visual: seg.vis || '',
+            keyframes: keyframes
+        };
+    });
+
+    const output = { segments };
+    // 如果同时包含画像数据（多代码块合并），一并存入
+    if (profileData) {
+        const gp = profileData.global_profile || profileData;
+        output.profile = {
+            narrative_type: gp.narrative_type,
+            visual_type: gp.visual_type,
+            summary: gp.summary,
+            intent_type: gp.intent_type,
+            topic_consistency: gp.topic_consistency,
+            core_claim: gp.core_claim,
+            emotion_type: gp.emotion_type || gp.emotional_tone
+        };
+    }
+    task.model_output = output;
+    task.model_outputs = [output];
+    task.model_names = [obj.model_name || '默认'];
+    task.reviews = [null];
+
+    return task;
+}
+
+// 合并多个文件的 JSONL 任务，按 video_url / nid 分组，每个文件视为一个模型
+function mergeJsonlTasks(fileResults) {
+    // 只有一个文件时，检查文件内是否有不同 model_name
+    if (fileResults.length === 1) {
+        const { defaultModelName, tasks } = fileResults[0];
+        // 单文件也要用文件名替换 '默认'
+        tasks.forEach(task => {
+            if (task.model_names?.[0] === '默认') {
+                task.model_names = [defaultModelName];
+            }
+        });
+        // 检查是否有 model_name 字段且存在多个不同值
+        const modelNames = [...new Set(tasks.map(t => t.model_names?.[0]).filter(Boolean))];
+        if (modelNames.length <= 1) {
+            // 单模型，直接返回
+            return tasks;
+        }
+        // 单文件多模型：按 video_url / id 合并
+        return mergeTasksByKey(tasks);
+    }
+
+    // 多文件：给每个任务打上文件级模型名（如果行内没有 model_name）
+    const allTasks = [];
+    fileResults.forEach(({ defaultModelName, tasks }) => {
+        tasks.forEach(task => {
+            // 如果 model_names 是 ['默认']，替换为文件名
+            if (task.model_names?.[0] === '默认') {
+                task.model_names = [defaultModelName];
+            }
+            allTasks.push(task);
+        });
+    });
+
+    return mergeTasksByKey(allTasks);
+}
+
+// 按 video_url / id 合并同一视频的多个模型输出
+function stripUrlQuery(url) {
+    if (!url) return url;
+    try {
+        const u = new URL(url);
+        return u.origin + u.pathname;
+    } catch {
+        // 非标准 URL，尝试简单截断 ? 之前
+        const idx = url.indexOf('?');
+        return idx > 0 ? url.substring(0, idx) : url;
+    }
+}
+
+function mergeTasksByKey(tasks) {
+    const map = new Map(); // key -> merged task
+
+    tasks.forEach(task => {
+        // 优先用 video_url（去掉query参数）作为 key，否则用 rawId/id
+        const key = stripUrlQuery(task.video_url) || task.rawId || task.id;
+
+        if (map.has(key)) {
+            const existing = map.get(key);
+            // 追加 model_outputs 和 model_names
+            const outputs = task.model_outputs || [];
+            const names = task.model_names || [];
+            outputs.forEach((output, i) => {
+                existing.model_outputs.push(output);
+                existing.model_names.push(names[i] || '未知模型');
+                existing.reviews.push(null);
+                existing.profileReviews.push(null);
+                existing.audiovisualReviews.push(null);
+            });
+        } else {
+            map.set(key, {
+                id: task.id,
+                rawId: task.rawId,
+                video_url: task.video_url,
+                model_output: task.model_output,
+                model_outputs: [...(task.model_outputs || [])],
+                model_names: [...(task.model_names || [])],
+                reviews: [...(task.reviews || [null])],
+                profileReviews: [...(task.profileReviews || [null])],
+                audiovisualReviews: [...(task.audiovisualReviews || [null])]
+            });
+        }
+    });
+
+    const merged = Array.from(map.values());
+    // 更新 model_output 指向第一组
+    merged.forEach(task => {
+        task.model_output = task.model_outputs[0] || {};
+    });
+
+    console.log(`合并完成：${tasks.length} 条记录 → ${merged.length} 个视频，模型数分布:`,
+        merged.map(t => `${t.id}(${t.model_names.length}组)`).join(', '));
+
+    return merged;
+}
+
+// 通用截断 JSON/数组修复：找到最后一个完整的 },] 或 } 闭合
+function tryFixTruncatedArray(jsonStr) {
+    // 找到第一个 [ 或 { 的位置，确定顶层结构
+    const firstBracket = jsonStr.search(/[\[{]/);
+    if (firstBracket === -1) throw new Error('无法修复：无 JSON 结构');
+
+    // 逐字符扫描，找最后一个顶层括号完全匹配的位置
+    let inString = false, escape = false;
+    let stack = [];
+    let lastCompleteTop = -1; // 最后一个使顶层闭合的位置
+    let lastCompleteObj = -1; // 最后一个 braceCount==0 的 } 位置
+
+    for (let i = firstBracket; i < jsonStr.length; i++) {
+        const c = jsonStr[i];
+        if (escape) { escape = false; continue; }
+        if (c === '\\' && inString) { escape = true; continue; }
+        if (c === '"' && !escape) { inString = !inString; continue; }
+        if (inString) continue;
+
+        if (c === '[' || c === '{') {
+            stack.push(c);
+        } else if (c === ']' || c === '}') {
+            stack.pop();
+            if (stack.length === 0) lastCompleteTop = i;
+            if (c === '}' && stack.filter(s => s === '{').length === 0) lastCompleteObj = i;
+        }
+    }
+
+    // 情况1：找到完整闭合位置，截取到那里
+    if (lastCompleteTop !== -1) {
+        return jsonStr.substring(firstBracket, lastCompleteTop + 1);
+    }
+
+    // 情况2：截断了，尝试找最后一个完整的对象，然后闭合所有括号
+    if (lastCompleteObj !== -1) {
+        let truncated = jsonStr.substring(firstBracket, lastCompleteObj + 1);
+        // 去掉尾部逗号
+        truncated = truncated.replace(/,\s*$/, '');
+        // 统计未闭合的括号
+        stack = [];
+        inString = false; escape = false;
+        for (let i = 0; i < truncated.length; i++) {
+            const c = truncated[i];
+            if (escape) { escape = false; continue; }
+            if (c === '\\' && inString) { escape = true; continue; }
+            if (c === '"' && !escape) { inString = !inString; continue; }
+            if (inString) continue;
+            if (c === '[' || c === '{') stack.push(c);
+            else if (c === ']' || c === '}') stack.pop();
+        }
+        // 闭合剩余括号
+        const closers = stack.reverse().map(s => s === '[' ? ']' : '}').join('');
+        return truncated + closers;
+    }
+
+    throw new Error('无法修复：找不到完整的 JSON 元素');
 }
 
 // 尝试修复被截断的JSON（Excel单元格字符限制导致）
@@ -1345,68 +2356,174 @@ function cleanJsonTrailingContent(jsonStr) {
 }
 
 // 解析单个JSON单元格
+// 将 Python dict repr 字符串转换为合法 JSON 字符串
+// 逐字符解析，正确处理三种引号模式：
+//  1. 'key': 'value'              — 普通单引号
+//  2. 'desc': \"value with 'x'\"    — 转义双引号包含撇号
+//  3. 'desc': "value with \"x\" quotes" — 双引号字符串包含中文书名号等
+function pythonDictToJson(s) {
+    s = s.replace(/\bTrue\b/g, 'true').replace(/\bFalse\b/g, 'false').replace(/\bNone\b/g, 'null');
+    const result = [];
+    let i = 0;
+    while (i < s.length) {
+        const c = s[i];
+        if (c === "'") {
+            // 单引号字符串：收集到匹配的闭合单引号
+            result.push('"');
+            i++;
+            while (i < s.length) {
+                const c2 = s[i];
+                if (c2 === "'") { result.push('"'); i++; break; }
+                else if (c2 === '\\' && i + 1 < s.length) {
+                    const nc = s[i + 1];
+                    if (nc === "'")       { result.push("'"); i += 2; }      // \' → '
+                    else if (nc === '"')  { result.push('\\"'); i += 2; }     // \" → \"
+                    else if (nc === '\\') { result.push('\\\\'); i += 2; }    // \\ → \\
+                    else { result.push(c2, nc); i += 2; }
+                }
+                else if (c2 === '"') { result.push('\\"'); i++; }            // 裸双引号 → 转义
+                else { result.push(c2); i++; }
+            }
+        } else if (c === '"') {
+            // 双引号字符串：收集到匹配的闭合双引号
+            result.push('"');
+            i++;
+            while (i < s.length) {
+                const c2 = s[i];
+                if (c2 === '"') { result.push('"'); i++; break; }
+                else if (c2 === '\\' && i + 1 < s.length) { result.push(c2, s[i + 1]); i += 2; }
+                else { result.push(c2); i++; }
+            }
+        } else {
+            result.push(c);
+            i++;
+        }
+    }
+    return result.join('');
+}
+
+// 从模型输出文本中提取 JSON/dict 内容（剥离思考链、XML 标签、markdown 代码块）
+function extractJsonFromText(s) {
+    // 移除 <think>...</think>
+    s = s.replace(/<think>[\s\S]*?<\/think>/g, '');
+    // 移除 <json_output> 标签
+    s = s.replace(/<\/?json_output>/g, '');
+    // 处理 <json> 或 <json 标签包裹的内容
+    // 格式变体：<json>{...}</json>  |  <json>\n```json{...}```\n</json>  |  <json{...}</json>  |  <json{...}
+    // 先尝试提取 <json>...</json> 或 <json...</json> 块中的内容
+    const jsonTagMatch = s.match(/<json\s*>?\s*([\s\S]*?)\s*<\/json>/i);
+    if (jsonTagMatch) {
+        s = jsonTagMatch[1];
+    } else {
+        // 没有闭合的 </json>，移除开头的 <json> 或 <json（无 >）
+        s = s.replace(/^<json\s*>?\s*/i, '');
+        s = s.replace(/\s*<\/json>\s*$/i, '');
+    }
+    s = s.trim();
+    // 移除 markdown 代码块
+    s = s.replace(/^```(?:json)?\s*\n?/, '');
+    s = s.replace(/\n?```\s*$/, '');
+    return s.trim();
+}
+
 function parseJsonCell(cellValue, taskIndex, colIndex) {
     if (!cellValue) return null;
-    
+
     // 如果已经是对象，直接使用
     if (typeof cellValue === 'object' && cellValue !== null) {
         return normalizeModelOutput(cellValue);
     }
-    
+
     // 尝试解析JSON字符串
     try {
         let jsonStr = cellValue.toString();
-        
+
         // 清理可能的BOM字符
         jsonStr = jsonStr.replace(/^\uFEFF/, '');
-        
-        // 去掉首尾空白
-        jsonStr = jsonStr.trim();
-        
+
+        // 检测多代码块格式：```json ... ``` ```json ... ```（含 segment + profile）
+        let cleaned = jsonStr.replace(/<think>[\s\S]*?<\/think>/g, '').replace(/<\/?json_output>/g, '').replace(/<\/?json\s*>/g, '').trim();
+        const codeBlocks = cleaned.match(/```(?:json)?\s*\n([\s\S]*?)```/g);
+        if (codeBlocks && codeBlocks.length >= 2) {
+            let merged = null;
+            for (const block of codeBlocks) {
+                const content = block.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '').trim();
+                let parsed = null;
+                try { parsed = JSON.parse(content); } catch (_) {}
+                if (!parsed) { try { parsed = JSON.parse(tryFixTruncatedArray(content)); } catch (_) {} }
+                if (!parsed) continue;
+                if (!merged) {
+                    merged = Array.isArray(parsed) ? { segment_detail: parsed } : parsed;
+                } else {
+                    if (typeof parsed === 'object' && !Array.isArray(parsed)) {
+                        Object.assign(merged, parsed);
+                    }
+                }
+            }
+            if (merged) return normalizeModelOutput(merged);
+        }
+
+        // 提取 JSON/dict 内容（剥离 <think>、<json_output>、markdown 代码块等）
+        jsonStr = extractJsonFromText(jsonStr);
+
         // 如果为空，返回null
         if (!jsonStr) return null;
-        
-        // 去掉 markdown 代码块包裹（如 ```json ... ``` 或 ``` ... ```）
-        if (jsonStr.startsWith('```')) {
-            // 去掉开头的 ```json 或 ```
-            jsonStr = jsonStr.replace(/^```(?:json)?\s*\n?/, '');
-            // 去掉结尾的 ```
-            jsonStr = jsonStr.replace(/\n?```\s*$/, '');
-            jsonStr = jsonStr.trim();
-        }
-        
+
         // 如果字符串被双引号包裹（Excel常见行为），去掉外层引号
         if (jsonStr.startsWith('"') && jsonStr.endsWith('"')) {
             jsonStr = jsonStr.slice(1, -1);
-            // 去掉外层引号后，内部的转义双引号 "" 需要还原为单个引号 "
             jsonStr = jsonStr.replace(/""/g, '"');
         }
-        
+
         // 如果字符串以单引号包裹，去掉单引号
         if (jsonStr.startsWith("'") && jsonStr.endsWith("'")) {
             jsonStr = jsonStr.slice(1, -1);
         }
-        
-        // 先修复缺少逗号的非标准JSON（需要在清理控制字符之前，因为依赖换行符检测）
-        jsonStr = fixMissingCommas(jsonStr);
-        
-        // 修复多余的闭合括号
-        jsonStr = fixExtraBraces(jsonStr);
-        
-        // 清理JSON字符串中的控制字符
-        jsonStr = cleanJsonControlChars(jsonStr);
-        
-        // 清理末尾可能存在的非JSON内容（如Python字典格式）
-        jsonStr = cleanJsonTrailingContent(jsonStr);
-        
-        // 尝试解析，如果失败则尝试修复截断的JSON
+
+        // 先尝试直接解析标准 JSON
         let parsed;
         try {
             parsed = JSON.parse(jsonStr);
-        } catch (parseError) {
-            console.warn(`任务 ${taskIndex + 1} 第${colIndex}列 首次解析失败，尝试修复...`);
-            const fixedJson = tryFixTruncatedJson(jsonStr);
-            parsed = JSON.parse(fixedJson);
+        } catch (e1) {
+            // 尝试剥离 segment_output/segment_detail 外层包裹（Python 风格混合引号）
+            const wrapperMatch = jsonStr.match(/^{['"](segment_output|segment_detail)['"]\s*:\s*/);
+            if (wrapperMatch) {
+                let inner = jsonStr.slice(wrapperMatch[0].length);
+                let depth = 0, inStr = false, strChar = '', esc = false, valueEnd = -1;
+                for (let ci = 0; ci < inner.length; ci++) {
+                    const ch = inner[ci];
+                    if (esc) { esc = false; continue; }
+                    if (inStr) { if (ch === '\\') { esc = true; continue; } if (ch === strChar) { inStr = false; } continue; }
+                    if (ch === '"' || ch === "'") { inStr = true; strChar = ch; continue; }
+                    if (ch === '[' || ch === '{') depth++;
+                    else if (ch === ']' || ch === '}') { depth--; if (depth === 0) { valueEnd = ci; break; } }
+                }
+                if (valueEnd !== -1) {
+                    const valueStr = inner.substring(0, valueEnd + 1);
+                    try { parsed = { [wrapperMatch[1]]: JSON.parse(valueStr) }; }
+                    catch (_) { try { parsed = { [wrapperMatch[1]]: JSON.parse(pythonDictToJson(valueStr)) }; } catch (_2) {} }
+                }
+            }
+            if (!parsed) {
+            // 尝试修复常见 JSON 格式问题后再解析
+            let fixedStr = fixMissingCommas(jsonStr);
+            fixedStr = fixExtraBraces(fixedStr);
+            fixedStr = cleanJsonControlChars(fixedStr);
+            fixedStr = cleanJsonTrailingContent(fixedStr);
+            try {
+                parsed = JSON.parse(fixedStr);
+            } catch (e2) {
+                // 尝试 Python dict → JSON 转换（逐字符解析，处理所有引号模式）
+                try {
+                    parsed = JSON.parse(pythonDictToJson(jsonStr));
+                } catch (e3) {
+                    // 最后尝试修复截断的 JSON
+                    console.warn(`任务 ${taskIndex + 1} 第${colIndex}列 多次解析失败，尝试修复截断...`);
+                    const fixedJson = tryFixTruncatedJson(jsonStr);
+                    parsed = JSON.parse(fixedJson);
+                }
+            }
+            }
         }
         return normalizeModelOutput(parsed);
     } catch (e) {
@@ -1461,13 +2578,37 @@ function parseExcel(arrayBuffer) {
     }
     
     console.log('Excel 解析原始数据行数:', rows.length);
-    
-    // 第一行为表头，从第二列开始是模型名称
+
+    // 第一行为表头，智能检测各列含义
     const headerRow = rows[0];
+
+    // 检测是否有 nid 列（第一列表头含 nid/id/编号）
+    const firstHeader = headerRow[0]?.toString().trim().toLowerCase() || '';
+    const nidKeywords = ['nid', 'data_id', '编号'];
+    const hasNidCol = nidKeywords.some(kw => firstHeader === kw || firstHeader.includes(kw));
+    const urlCol = hasNidCol ? 1 : 0; // 视频链接列
+    console.log('NID列检测:', hasNidCol ? `第1列为NID列 ("${headerRow[0]}")` : '无NID列');
+
+    // 检测标题列（紧跟 URL 列之后）
+    const titleKeywords = ['标题', '视频标题', 'title', '名称', '视频名称'];
+    const titleCheckCol = urlCol + 1;
+    const titleCheckHeader = headerRow[titleCheckCol]?.toString().trim().toLowerCase() || '';
+    const hasTitleCol = titleKeywords.some(kw => titleCheckHeader.includes(kw.toLowerCase()));
+    const dataStartCol = hasTitleCol ? titleCheckCol + 1 : titleCheckCol; // 模型输出数据起始列
+    console.log('标题列检测:', hasTitleCol ? `第${titleCheckCol + 1}列为标题列 ("${headerRow[titleCheckCol]}")` : '无标题列');
+
     const modelNames = [];
-    for (let col = 1; col < headerRow.length; col++) {
-        const name = headerRow[col]?.toString().trim() || `模型${col}`;
-        modelNames.push(name);
+    // 检测是否有自动评估列（表头含"评估"/"eval"关键词）
+    const evalKeywords = ['评估', '自动评估', 'eval', 'evaluation', '评测'];
+    let evalColIndex = -1; // 评估数据列号（0-based in row array）
+    for (let col = dataStartCol; col < headerRow.length; col++) {
+        const h = headerRow[col]?.toString().trim().toLowerCase() || '';
+        if (evalKeywords.some(kw => h.includes(kw.toLowerCase()))) {
+            evalColIndex = col;
+            console.log(`自动评估列检测: 第${col + 1}列 ("${headerRow[col]}")`);
+        } else {
+            modelNames.push(headerRow[col]?.toString().trim() || `模型${col}`);
+        }
     }
     console.log('模型名称列表:', modelNames);
     
@@ -1476,14 +2617,25 @@ function parseExcel(arrayBuffer) {
     const startRowIndex = 2; // Excel行号从1开始，数据从第2行开始
     
     return dataRows.map((row, i) => {
-        const obj = { id: `task-${i + 1}` };
+        // 提取 nid（用于排序和合并），处理科学计数法大数字
+        let nid = hasNidCol && row[0] ? String(row[0]).trim() : '';
+        if (nid && /^[\d.]+e\+?\d+$/i.test(nid)) {
+            // 科学计数法转整数字符串
+            try { nid = BigInt(Math.round(Number(nid))).toString(); } catch (_) {}
+        }
+        // 提取标题
+        const titleColIdx = urlCol + 1;
+        const title = hasTitleCol && row[titleColIdx] ? String(row[titleColIdx]).trim() : '';
+        const obj = { id: title || nid || `task-${i + 1}`, rawId: nid || `task-${i + 1}` };
         const excelRowNum = startRowIndex + i;
-        const cellAddress = `A${excelRowNum}`;
+        // URL 列地址（A 或 B）
+        const urlColLetter = String.fromCharCode(65 + urlCol); // 0->A, 1->B
+        const cellAddress = `${urlColLetter}${excelRowNum}`;
         const cell = worksheet[cellAddress];
-        
+
         // 获取URL：优先从超链接Target获取，否则用单元格值
         let videoUrl = '';
-        
+
         if (cell) {
             // 方法1：检查单元格的超链接对象
             if (cell.l && cell.l.Target) {
@@ -1500,27 +2652,43 @@ function parseExcel(arrayBuffer) {
                 console.log(`任务 ${i + 1} 从cell.w获取URL`);
             }
         }
-        
+
         // 方法3：从rows数组获取（备用）
-        if (!videoUrl && row[0]) {
-            videoUrl = String(row[0]).trim();
-            console.log(`任务 ${i + 1} 从row[0]获取URL`);
+        if (!videoUrl && row[urlCol]) {
+            videoUrl = String(row[urlCol]).trim();
+            console.log(`任务 ${i + 1} 从row[${urlCol}]获取URL`);
         }
         
         obj.video_url = videoUrl;
         console.log(`任务 ${i + 1}: URL=${videoUrl.substring(0, 80)}...`);
         
-        // 第二列及之后的列都是模型输出JSON数据
-        // 存储为数组 model_outputs，同时记录模型名称
+        // 从数据起始列开始解析模型输出JSON数据
         obj.model_outputs = [];
         obj.model_names = [];
-        
-        for (let col = 1; col < row.length; col++) {
+        let modelNameIdx = 0;
+
+        for (let col = dataStartCol; col < row.length; col++) {
+            if (col === evalColIndex) continue; // 跳过评估列
             const parsed = parseJsonCell(row[col], i, col + 1);
             // 支持分段语义详情(segments)或全篇语义画像(profile)数据
-            if (parsed && ((parsed.segments && parsed.segments.length > 0) || parsed.profile)) {
+            if (parsed && ((parsed.segments && parsed.segments.length > 0) || parsed.profile || parsed.audiovisual)) {
                 obj.model_outputs.push(parsed);
-                obj.model_names.push(modelNames[col - 1] || `模型${col}`);
+                obj.model_names.push(modelNames[modelNameIdx] || `模型${col}`);
+            }
+            modelNameIdx++;
+        }
+
+        // 解析自动评估列
+        if (evalColIndex >= 0 && row[evalColIndex]) {
+            try {
+                const evalStr = extractJsonFromText(String(row[evalColIndex]));
+                obj.autoEval = JSON.parse(evalStr);
+            } catch (e) {
+                try {
+                    obj.autoEval = JSON.parse(pythonDictToJson(String(row[evalColIndex])));
+                } catch (e2) {
+                    console.warn(`任务 ${i + 1} 自动评估数据解析失败:`, e2.message);
+                }
             }
         }
         
@@ -1529,6 +2697,8 @@ function parseExcel(arrayBuffer) {
         
         // 初始化每组数据的评分
         obj.reviews = obj.model_outputs.map(() => null);
+        obj.profileReviews = obj.model_outputs.map(() => null);
+        obj.audiovisualReviews = obj.model_outputs.map(() => null);
         
         console.log(`任务 ${i + 1}: URL=${obj.video_url}, 数据组数=${obj.model_outputs.length}`);
         
@@ -1610,8 +2780,13 @@ function normalizeModelOutput(data) {
         };
     }
     
+    // 处理基础音画质量数据
+    if (data.vision_quality || data.audiovisual_integration || data.content_subject) {
+        output.audiovisual = data;
+    }
+
     // 如果解析出了任何有效数据，返回 output；否则返回原数据
-    if (output.segments || output.profile) {
+    if (output.segments || output.profile || output.audiovisual) {
         return output;
     }
     
@@ -1634,11 +2809,13 @@ function processImportData(data) {
             task.model_output = task.model_outputs[0];
             task.reviews = task.model_outputs.map(() => null);
             task.profileReviews = task.model_outputs.map(() => null);
+            task.audiovisualReviews = task.model_outputs.map(() => null);
         } else if (task.model_output && !task.model_outputs) {
             // 兼容旧格式
             task.model_outputs = [task.model_output];
             task.reviews = [null];
             task.profileReviews = [null];
+            task.audiovisualReviews = [null];
         }
         return task;
     });
@@ -1648,11 +2825,43 @@ function processImportData(data) {
         return;
     }
 
-    // 根据当前模式添加到对应的任务列表
+    // 根据当前模式添加到对应的任务列表，按 video_url 合并同一视频的多模型输出
+    const existingTasks = state.reviewMode === 'segment' ? state.segmentTasks
+        : state.reviewMode === 'audiovisual' ? state.audiovisualTasks
+        : state.profileTasks;
+    let mergedCount = 0;
+
+    validTasks.forEach(newTask => {
+        const key = stripUrlQuery(newTask.video_url) || newTask.rawId || newTask.id;
+        const existing = existingTasks.find(t => (stripUrlQuery(t.video_url) || t.rawId || t.id) === key);
+        if (existing && existing.model_outputs) {
+            // 合并到已有任务中
+            const newOutputs = newTask.model_outputs || [];
+            const newNames = newTask.model_names || [];
+            const newReviews = newTask.reviews || [];
+            newOutputs.forEach((output, i) => {
+                existing.model_outputs.push(output);
+                existing.model_names = existing.model_names || [];
+                existing.model_names.push(newNames[i] || '默认');
+                existing.reviews = existing.reviews || [];
+                existing.reviews.push(newReviews[i] || null);
+                existing.profileReviews = existing.profileReviews || [];
+                existing.profileReviews.push(null);
+                existing.audiovisualReviews = existing.audiovisualReviews || [];
+                existing.audiovisualReviews.push(null);
+            });
+            mergedCount++;
+        } else {
+            existingTasks.push(newTask);
+        }
+    });
+
     if (state.reviewMode === 'segment') {
-        state.segmentTasks = [...state.segmentTasks, ...validTasks];
+        state.segmentTasks = existingTasks;
+    } else if (state.reviewMode === 'audiovisual') {
+        state.audiovisualTasks = existingTasks;
     } else {
-        state.profileTasks = [...state.profileTasks, ...validTasks];
+        state.profileTasks = existingTasks;
     }
     
     saveToLocalStorage();
@@ -1666,14 +2875,20 @@ function processImportData(data) {
         selectTask(0);
     }
 
-    alert(`成功导入 ${validTasks.length} 个任务到「${state.reviewMode === 'segment' ? '分段语义详情' : '全篇语义画像'}」`);
+    const newCount = validTasks.length - mergedCount;
+    const modeNames = { segment: '分段语义详情', profile: '全篇语义画像', audiovisual: '基础音画质量' };
+    const modeName = modeNames[state.reviewMode] || state.reviewMode;
+    let msg = `成功导入到「${modeName}」`;
+    if (newCount > 0) msg += `，新增 ${newCount} 个任务`;
+    if (mergedCount > 0) msg += `，合并 ${mergedCount} 个已有任务的模型输出`;
+    alert(msg);
 }
 
 // 清空当前模式的任务
 function clearAllTasks() {
     const tasks = getTasks();
-    const modeName = state.reviewMode === 'segment' ? '分段语义详情' : '全篇语义画像';
-    
+    const modeName = ({ segment: '分段语义详情', profile: '全篇语义画像', audiovisual: '基础音画质量' })[state.reviewMode] || state.reviewMode;
+
     if (tasks.length === 0) {
         alert(`「${modeName}」任务列表已为空`);
         return;
@@ -1688,6 +2903,10 @@ function clearAllTasks() {
         state.segmentTasks = [];
         state.segmentTaskIndex = -1;
         resetRatings();
+    } else if (state.reviewMode === 'audiovisual') {
+        state.audiovisualTasks = [];
+        state.audiovisualTaskIndex = -1;
+        resetAudiovisualRatings();
     } else {
         state.profileTasks = [];
         state.profileTaskIndex = -1;
@@ -1703,7 +2922,11 @@ function clearAllTasks() {
     document.getElementById('review-workspace').classList.add('hidden');
     document.getElementById('empty-state').classList.remove('hidden');
     const taskLabelClear = document.getElementById('current-task-label');
-    if (taskLabelClear) taskLabelClear.textContent = '未选择任务';
+    if (taskLabelClear) {
+        taskLabelClear.classList.add('hidden');
+        const inner = taskLabelClear.querySelector('div');
+        if (inner) inner.textContent = '';
+    }
     
     // 清空视频
     elements.videoPlayer.src = '';
@@ -1803,36 +3026,47 @@ function exportResults() {
 // 本地存储
 // ============================================
 function saveToLocalStorage() {
-    // 分别保存两种模式的任务列表
-    localStorage.setItem('video-review-segment-tasks', JSON.stringify(state.segmentTasks));
-    localStorage.setItem('video-review-segment-index', state.segmentTaskIndex);
-    localStorage.setItem('video-review-profile-tasks', JSON.stringify(state.profileTasks));
-    localStorage.setItem('video-review-profile-index', state.profileTaskIndex);
+    const wsId = state.currentWorkspaceId;
+    if (!wsId) return;
+    localStorage.setItem(getWorkspaceKey(wsId, 'segment-tasks'), JSON.stringify(state.segmentTasks));
+    localStorage.setItem(getWorkspaceKey(wsId, 'segment-index'), state.segmentTaskIndex);
+    localStorage.setItem(getWorkspaceKey(wsId, 'profile-tasks'), JSON.stringify(state.profileTasks));
+    localStorage.setItem(getWorkspaceKey(wsId, 'profile-index'), state.profileTaskIndex);
+    localStorage.setItem(getWorkspaceKey(wsId, 'audiovisual-tasks'), JSON.stringify(state.audiovisualTasks));
+    localStorage.setItem(getWorkspaceKey(wsId, 'audiovisual-index'), state.audiovisualTaskIndex);
 }
 
 function loadFromLocalStorage() {
+    const wsId = state.currentWorkspaceId;
+    if (!wsId) return;
     try {
-        // 加载分段语义详情任务
-        const segmentTasks = localStorage.getItem('video-review-segment-tasks');
-        const segmentIndex = localStorage.getItem('video-review-segment-index');
+        const segmentTasks = localStorage.getItem(getWorkspaceKey(wsId, 'segment-tasks'));
+        const segmentIndex = localStorage.getItem(getWorkspaceKey(wsId, 'segment-index'));
         if (segmentTasks) {
             state.segmentTasks = JSON.parse(segmentTasks);
         }
         if (segmentIndex !== null) {
             state.segmentTaskIndex = parseInt(segmentIndex);
         }
-        
-        // 加载全篇语义画像任务
-        const profileTasks = localStorage.getItem('video-review-profile-tasks');
-        const profileIndex = localStorage.getItem('video-review-profile-index');
+
+        const profileTasks = localStorage.getItem(getWorkspaceKey(wsId, 'profile-tasks'));
+        const profileIndex = localStorage.getItem(getWorkspaceKey(wsId, 'profile-index'));
         if (profileTasks) {
             state.profileTasks = JSON.parse(profileTasks);
         }
         if (profileIndex !== null) {
             state.profileTaskIndex = parseInt(profileIndex);
         }
-        
-        // 延迟选择任务（等待模式恢复后）
+
+        const audiovisualTasks = localStorage.getItem(getWorkspaceKey(wsId, 'audiovisual-tasks'));
+        const audiovisualIndex = localStorage.getItem(getWorkspaceKey(wsId, 'audiovisual-index'));
+        if (audiovisualTasks) {
+            state.audiovisualTasks = JSON.parse(audiovisualTasks);
+        }
+        if (audiovisualIndex !== null) {
+            state.audiovisualTaskIndex = parseInt(audiovisualIndex);
+        }
+
         setTimeout(() => {
             const currentTasks = getTasks();
             const currentIndex = getTaskIndex();
@@ -2045,11 +3279,13 @@ window.loadDemoData = loadDemoData;
 // 审核模式切换（分段语义详情 / 全篇语义画像）
 // ============================================
 function switchReviewMode(mode) {
-    if (mode !== 'segment' && mode !== 'profile') return;
-    
+    if (mode !== 'segment' && mode !== 'profile' && mode !== 'audiovisual') return;
+
     state.reviewMode = mode;
-    localStorage.setItem('review-mode', mode);
-    
+    if (state.currentWorkspaceId) {
+        localStorage.setItem(getWorkspaceKey(state.currentWorkspaceId, 'review-mode'), mode);
+    }
+
     // 更新模式按钮样式 (iOS Segmented Control Style)
     document.querySelectorAll('.mode-btn').forEach(btn => {
         btn.classList.remove('active');
@@ -2058,66 +3294,84 @@ function switchReviewMode(mode) {
     if (activeBtn) {
         activeBtn.classList.add('active');
     }
-    
+
     // 切换内容和评分面板
     const segmentContent = document.getElementById('segment-mode-content');
     const profileContent = document.getElementById('profile-mode-content');
+    const audiovisualContent = document.getElementById('audiovisual-mode-content');
     const segmentRating = document.getElementById('segment-rating-panel');
     const profileRating = document.getElementById('profile-rating-panel');
+    const audiovisualRating = document.getElementById('audiovisual-rating-panel');
     const segmentDock = document.getElementById('segment-rating-dock');
     const profileDock = document.getElementById('profile-rating-dock');
-    
+    const audiovisualDock = document.getElementById('audiovisual-rating-dock');
+
+    // 先全部隐藏
+    [segmentContent, profileContent, audiovisualContent,
+     segmentRating, profileRating, audiovisualRating,
+     segmentDock, profileDock, audiovisualDock].forEach(el => el?.classList.add('hidden'));
+
+    // 显示当前模式
     if (mode === 'segment') {
         segmentContent?.classList.remove('hidden');
-        profileContent?.classList.add('hidden');
         segmentRating?.classList.remove('hidden');
-        profileRating?.classList.add('hidden');
         segmentDock?.classList.remove('hidden');
-        profileDock?.classList.add('hidden');
-    } else {
-        segmentContent?.classList.add('hidden');
+    } else if (mode === 'profile') {
         profileContent?.classList.remove('hidden');
-        segmentRating?.classList.add('hidden');
         profileRating?.classList.remove('hidden');
-        segmentDock?.classList.add('hidden');
         profileDock?.classList.remove('hidden');
+    } else {
+        audiovisualContent?.classList.remove('hidden');
+        audiovisualRating?.classList.remove('hidden');
+        audiovisualDock?.classList.remove('hidden');
     }
-    
+
     // 刷新任务列表和进度（切换模式后显示对应模式的任务）
     updateUI();
-    
+
     // 恢复当前模式的任务选中状态
     const tasks = getTasks();
     const index = getTaskIndex();
-    
+
     if (tasks.length === 0) {
         // 当前模式无任务，显示空状态
         document.getElementById('review-workspace').classList.add('hidden');
         document.getElementById('empty-state').classList.remove('hidden');
         const taskLabelMode = document.getElementById('current-task-label');
-        if (taskLabelMode) taskLabelMode.textContent = '未选择任务';
+        if (taskLabelMode) {
+            taskLabelMode.classList.add('hidden');
+            const inner = taskLabelMode.querySelector('div');
+            if (inner) inner.textContent = '';
+        }
         elements.videoPlayer.src = '';
     } else if (index >= 0 && index < tasks.length) {
         // 有任务且已选中，恢复选中状态
         selectTask(index);
         if (mode === 'segment') {
             switchTab(state.currentTab);
-        } else {
+        } else if (mode === 'profile') {
             renderProfileContent();
+        } else {
+            renderAudiovisualContent();
         }
     } else {
         // 有任务但未选中，选中第一个
         selectTask(0);
         if (mode === 'segment') {
             switchTab(state.currentTab);
-        } else {
+        } else if (mode === 'profile') {
             renderProfileContent();
+        } else {
+            renderAudiovisualContent();
         }
     }
 }
 
 function restoreReviewMode() {
-    const savedMode = localStorage.getItem('review-mode') || 'segment';
+    let savedMode = 'segment';
+    if (state.currentWorkspaceId) {
+        savedMode = localStorage.getItem(getWorkspaceKey(state.currentWorkspaceId, 'review-mode')) || 'segment';
+    }
     switchReviewMode(savedMode);
 }
 
@@ -2213,24 +3467,254 @@ function renderProfileSection(title, icon, color, tag, content) {
 }
 
 // ============================================
+// 基础音画质量内容渲染
+// ============================================
+function renderAudiovisualContent() {
+    const container = document.getElementById('audiovisual-content');
+    const task = getCurrentTask();
+
+    if (!task || !container) {
+        if (container) container.innerHTML = '<div class="text-gray-400 text-center py-8">请先选择任务</div>';
+        return;
+    }
+
+    const avData = task.model_outputs?.[state.currentOutputGroup]?.audiovisual
+        || task.model_output?.audiovisual
+        || null;
+
+    if (!avData) {
+        container.innerHTML = '<div class="text-gray-400 text-center py-8">暂无基础音画质量数据</div>';
+        return;
+    }
+
+    const sections = [];
+    const ev = task.autoEval || null; // 自动评估数据
+
+    // 从评估数据中提取维度信息的辅助函数
+    function getEval(obj) {
+        if (!obj) return null;
+        // 支持对象或数组中第一个元素
+        const d = Array.isArray(obj) ? obj[0] : obj;
+        if (!d || (d['得分'] == null && d['理由'] == null)) return null;
+        return {
+            score: d['得分'] ?? null,
+            reason: d['理由'] || '',
+            timeScore: d['time得分'] ?? null,
+            timeReason: d['time理由'] || ''
+        };
+    }
+
+    // 总体评估摘要
+    if (ev && (ev['总体评分'] || ev['总体评价'])) {
+        const summary = (ev['总体评分'] ? `<b>${escapeHTML(ev['总体评分'])}</b> ` : '') + (ev['总体评价'] ? escapeHTML(ev['总体评价']) : '');
+        sections.push(`<div class="p-3 rounded-xl bg-blue-50 border border-blue-100 text-sm text-blue-800 leading-relaxed">
+            <span class="text-[10px] font-bold text-blue-400 uppercase mr-1">自动评估总结</span>${summary}
+        </div>`);
+    }
+
+    // 1. 总体质量
+    if (avData.audiovisual_integration?.detail_quality) {
+        const dq = avData.audiovisual_integration.detail_quality;
+        sections.push(renderAVSection('总体质量', 'mdi-tune-variant', dq.level, dq.desc, false,
+            getEval(ev?.audiovisual_integration?.detail_quality)));
+    } else {
+        sections.push(renderAVSection('总体质量', 'mdi-tune-variant', '无', null, false,
+            getEval(ev?.audiovisual_integration?.detail_quality)));
+    }
+
+    // 2. 加工元素
+    const vpe = avData.vision_quality?.visual_processing_elements;
+    if (vpe && vpe.length > 0) {
+        const items = vpe.map(el => {
+            const timeStr = Array.isArray(el.time) ? `${formatTime(el.time[0])}→${formatTime(el.time[1])}` : '';
+            return `<b>${escapeHTML(el.tag || '-')}</b>：${escapeHTML(el.desc || '')}` +
+                (el.position ? ` <span class="text-gray-400">[${escapeHTML(el.position)}${el.area_ratio ? ', ' + escapeHTML(el.area_ratio) : ''}]</span>` : '') +
+                (timeStr ? ` <span class="text-gray-400 font-mono text-[11px]">${timeStr}</span>` : '');
+        }).join('<br>');
+        sections.push(renderAVSection('加工元素', 'mdi-image-filter-center-focus', null, items, true,
+            getEval(ev?.vision_quality?.visual_processing_elements)));
+    } else {
+        sections.push(renderAVSection('加工元素', 'mdi-image-filter-center-focus', '无', null, false,
+            getEval(ev?.vision_quality?.visual_processing_elements)));
+    }
+
+    // 3. 构图
+    const comp = avData.vision_quality?.composition;
+    if (comp && comp.length > 0) {
+        const items = comp.map(el => {
+            const timeStr = Array.isArray(el.time) ? `${formatTime(el.time[0])}→${formatTime(el.time[1])}` : '';
+            return `<b>${escapeHTML(el.tag || el.desc || '-')}</b>` +
+                (el.desc && el.tag ? `：${escapeHTML(el.desc)}` : '') +
+                (timeStr ? ` <span class="text-gray-400 font-mono text-[11px]">${timeStr}</span>` : '');
+        }).join('<br>');
+        sections.push(renderAVSection('构图', 'mdi-grid', null, items, true,
+            getEval(ev?.vision_quality?.composition)));
+    } else {
+        sections.push(renderAVSection('构图', 'mdi-grid', '无', null, false,
+            getEval(ev?.vision_quality?.composition)));
+    }
+
+    // 4. 人物
+    const man = avData.content_subject?.man_negative_content;
+    if (man && man.length > 0) {
+        const items = man.map(el => renderAVListItem(el)).join('<br>');
+        sections.push(renderAVSection('人物', 'mdi-account', null, items, true,
+            getEval(ev?.content_subject?.man_negative_content)));
+    } else {
+        sections.push(renderAVSection('人物', 'mdi-account', '无', null, false,
+            getEval(ev?.content_subject?.man_negative_content)));
+    }
+
+    // 5. 生物
+    const creature = avData.content_subject?.creature_negative_content;
+    if (creature && creature.length > 0) {
+        const items = creature.map(el => renderAVListItem(el)).join('<br>');
+        sections.push(renderAVSection('生物', 'mdi-paw', null, items, true,
+            getEval(ev?.content_subject?.creature_negative_content)));
+    } else {
+        sections.push(renderAVSection('生物', 'mdi-paw', '无', null, false,
+            getEval(ev?.content_subject?.creature_negative_content)));
+    }
+
+    // 6. 信息属性
+    const infoAttr = avData.information?.information_attributes;
+    if (infoAttr && infoAttr.length > 0) {
+        const items = infoAttr.map(el =>
+            typeof el === 'string' ? escapeHTML(el) : renderAVListItem(el)
+        ).join('<br>');
+        sections.push(renderAVSection('信息属性', 'mdi-information', null, items, true,
+            getEval(ev?.information?.information_attributes)));
+    } else {
+        sections.push(renderAVSection('信息属性', 'mdi-information', '无', null, false,
+            getEval(ev?.information?.information_attributes)));
+    }
+
+    // 7. 真实性存疑
+    const qi = avData.information?.questionable_info;
+    if (qi) {
+        sections.push(renderAVSection('真实性存疑', 'mdi-alert-circle',
+            qi.has_issue ? '是' : '否', qi.desc !== '无' ? qi.desc : null, false,
+            getEval(ev?.information?.questionable_info)));
+    }
+
+    // 8. 地理位置
+    const geo = avData.information?.geographic_info;
+    if (geo) {
+        sections.push(renderAVSection('地理位置', 'mdi-map-marker',
+            geo.has_info ? '有' : '无', geo.desc !== '无' ? geo.desc : null, false,
+            getEval(ev?.information?.geographic_info)));
+    }
+
+    // 9. 时效性
+    const tl = avData.information?.timeliness_info;
+    if (tl) {
+        sections.push(renderAVSection('时效性', 'mdi-clock',
+            tl.has_info ? '有' : '无', tl.desc !== '无' ? tl.desc : null, false,
+            getEval(ev?.information?.timeliness_info)));
+    }
+
+    // 10. 低俗意图
+    const vi = avData.intent?.vulgar_intent;
+    if (vi) {
+        sections.push(renderAVSection('低俗/软色情意图', 'mdi-eye-off',
+            vi.has_intent ? '是' : '否', vi.desc !== '无' ? vi.desc : null, false,
+            getEval(ev?.intent?.vulgar_intent)));
+    }
+
+    // 11. 营销引流
+    const pi = avData.intent?.promotional_intent;
+    if (pi && pi.length > 0) {
+        const items = pi.map(el => renderAVListItem(el)).join('<br>');
+        sections.push(renderAVSection('营销与引流意图', 'mdi-bullhorn', null, items, true,
+            getEval(ev?.intent?.promotional_intent)));
+    } else {
+        sections.push(renderAVSection('营销与引流意图', 'mdi-bullhorn', '无', null, false,
+            getEval(ev?.intent?.promotional_intent)));
+    }
+
+    // 12. 违背道德
+    const iv = avData.values?.immoral_values;
+    if (iv) {
+        const catStr = iv.category && iv.category.length > 0 ? iv.category.join('、') : '';
+        sections.push(renderAVSection('违背社会道德', 'mdi-scale-balance',
+            iv.has_issue ? '是' : '否',
+            (catStr ? `分类：${catStr}` : '') + (iv.desc !== '无' ? (catStr ? '；' : '') + iv.desc : '') || null, false,
+            getEval(ev?.values?.immoral_values)));
+    }
+
+    container.innerHTML = sections.length > 0
+        ? sections.join('')
+        : '<div class="text-gray-400 text-center py-8">暂无基础音画质量数据</div>';
+}
+
+function renderAVSection(title, icon, tag, content, isHtml, evalInfo) {
+    // evalInfo: { score, reason, timeScore, timeReason } 自动评估数据（可选）
+    let evalHtml = '';
+    if (evalInfo) {
+        const parts = [];
+        if (evalInfo.score != null) {
+            const scoreColor = evalInfo.score >= 2 ? 'text-green-600' : evalInfo.score >= 1 ? 'text-yellow-600' : 'text-red-500';
+            parts.push(`<span class="font-semibold ${scoreColor}">${evalInfo.score}分</span>`);
+        }
+        if (evalInfo.reason) parts.push(`<span class="text-gray-500">${escapeHTML(evalInfo.reason)}</span>`);
+        if (evalInfo.timeScore != null) {
+            const tsColor = evalInfo.timeScore >= 2 ? 'text-green-600' : evalInfo.timeScore >= 1 ? 'text-yellow-600' : 'text-red-500';
+            parts.push(`<span class="font-semibold ${tsColor}">时间${evalInfo.timeScore}分</span>`);
+        }
+        if (evalInfo.timeReason) parts.push(`<span class="text-gray-500">${escapeHTML(evalInfo.timeReason)}</span>`);
+        if (parts.length > 0) {
+            evalHtml = `<div class="mt-2 pt-2 border-t border-dashed border-gray-200 text-xs leading-relaxed space-y-0.5">
+                <span class="text-[10px] font-bold text-blue-400 uppercase mr-1">自动评估</span>${parts.join(' · ')}
+            </div>`;
+        }
+    }
+    return `
+        <div class="p-4 rounded-2xl bg-black/[0.03] hover:bg-black/[0.05] transition-all duration-200">
+            <div class="flex items-center justify-between mb-2">
+                <div class="flex items-center gap-2">
+                    <span class="mdi ${icon} text-gray-400 text-lg"></span>
+                    <span class="text-xs font-semibold text-gray-800 uppercase tracking-wide">${title}</span>
+                </div>
+                ${tag ? `<span class="px-2.5 py-1 bg-black text-white text-[11px] font-medium rounded-full">${escapeHTML(tag)}</span>` : ''}
+            </div>
+            ${content ? `<div class="text-[15px] text-gray-700 leading-relaxed">${isHtml ? content : escapeHTML(content)}</div>` : ''}
+            ${evalHtml}
+        </div>
+    `;
+}
+
+function renderAVListItem(el) {
+    const parts = [];
+    if (el.tag) parts.push(`<b>${escapeHTML(el.tag)}</b>`);
+    if (el.desc) parts.push(escapeHTML(el.desc));
+    if (el.position) parts.push(`<span class="text-gray-400">[${escapeHTML(el.position)}]</span>`);
+    if (Array.isArray(el.time)) {
+        parts.push(`<span class="text-gray-400 font-mono text-[11px]">${formatTime(el.time[0])}→${formatTime(el.time[1])}</span>`);
+    }
+    return parts.join(' ') || '-';
+}
+
+// ============================================
 // 备注面板切换
 // ============================================
 function toggleNotePanel() {
     const notePanel = document.getElementById('note-panel');
     const segmentNotePanel = document.getElementById('segment-note-panel');
     const profileNotePanel = document.getElementById('profile-note-panel');
+    const audiovisualNotePanel = document.getElementById('audiovisual-note-panel');
     const toggleIcon = document.getElementById('note-toggle-icon');
-    
+
     if (notePanel) {
         const isHidden = notePanel.classList.contains('hidden');
         notePanel.classList.toggle('hidden');
-        
+
         // 根据当前模式切换显示对应的备注面板
+        [segmentNotePanel, profileNotePanel, audiovisualNotePanel].forEach(p => p?.classList.add('hidden'));
         if (state.reviewMode === 'segment') {
             segmentNotePanel?.classList.remove('hidden');
-            profileNotePanel?.classList.add('hidden');
+        } else if (state.reviewMode === 'audiovisual') {
+            audiovisualNotePanel?.classList.remove('hidden');
         } else {
-            segmentNotePanel?.classList.add('hidden');
             profileNotePanel?.classList.remove('hidden');
         }
         
@@ -2269,7 +3753,7 @@ function initRatingListeners() {
             star.addEventListener('mouseleave', () => highlightSegmentStars(group, state.ratings[dimension]));
         });
     });
-    
+
     // 全篇语义画像模式的评分（0-2分，数字样式）
     document.querySelectorAll('.rating-group[data-mode="profile"]').forEach(group => {
         const dimension = group.dataset.dimension;
@@ -2277,6 +3761,16 @@ function initRatingListeners() {
             star.addEventListener('click', () => setProfileRating(dimension, parseInt(star.dataset.value)));
             star.addEventListener('mouseenter', () => highlightProfileStars(group, parseInt(star.dataset.value)));
             star.addEventListener('mouseleave', () => highlightProfileStars(group, state.profileRatings[dimension]));
+        });
+    });
+
+    // 基础音画质量模式的评分（0-2分，数字样式，复用 highlightProfileStars）
+    document.querySelectorAll('.rating-group[data-mode="audiovisual"]').forEach(group => {
+        const dimension = group.dataset.dimension;
+        group.querySelectorAll('.rating-star').forEach(star => {
+            star.addEventListener('click', () => setAudiovisualRating(dimension, parseInt(star.dataset.value)));
+            star.addEventListener('mouseenter', () => highlightProfileStars(group, parseInt(star.dataset.value)));
+            star.addEventListener('mouseleave', () => highlightProfileStars(group, state.audiovisualRatings[dimension]));
         });
     });
 }
@@ -2356,6 +3850,32 @@ function resetProfileRatings() {
     });
 }
 
+function setAudiovisualRating(dimension, value) {
+    state.audiovisualRatings[dimension] = value;
+    document.querySelectorAll(`.rating-group[data-dimension="${dimension}"][data-mode="audiovisual"]`).forEach(group => {
+        highlightProfileStars(group, value);
+    });
+    saveToLocalStorage();
+}
+
+function resetAudiovisualRatings() {
+    AUDIOVISUAL_DIMENSIONS.forEach(dim => {
+        state.audiovisualRatings[dim.key] = -1;
+        state.audiovisualNotes[dim.key] = '';
+    });
+
+    document.querySelectorAll('.rating-group[data-mode="audiovisual"]').forEach(group => {
+        highlightProfileStars(group, -1);
+    });
+
+    AUDIOVISUAL_DIMENSIONS.forEach(dim => {
+        const dockInput = document.getElementById(`dock-note-${dim.key}`);
+        if (dockInput) dockInput.value = '';
+        const noteInput = document.getElementById(`note-${dim.key}`);
+        if (noteInput) noteInput.value = '';
+    });
+}
+
 // 扩展保存和加载评分功能
 const originalSaveReviewForCurrentGroup = saveReviewForCurrentGroup;
 saveReviewForCurrentGroup = function() {
@@ -2386,6 +3906,29 @@ saveReviewForCurrentGroup = function() {
             ratings: { ...state.ratings },
             notes: { ...state.notes },
             completed: Object.values(state.ratings).some(r => r > 0),
+            timestamp: new Date().toISOString()
+        };
+    } else if (state.reviewMode === 'audiovisual') {
+        // 收集基础音画质量的备注（优先从 dock 面板读取）
+        AUDIOVISUAL_DIMENSIONS.forEach(dim => {
+            const dockInput = document.getElementById(`dock-note-${dim.key}`);
+            const noteInput = document.getElementById(`note-${dim.key}`);
+            if (dockInput && dockInput.value) {
+                state.audiovisualNotes[dim.key] = dockInput.value;
+            } else if (noteInput && noteInput.value) {
+                state.audiovisualNotes[dim.key] = noteInput.value;
+            }
+        });
+
+        if (!task.audiovisualReviews) {
+            task.audiovisualReviews = task.model_outputs?.map(() => null) || [null];
+        }
+
+        task.audiovisualReviews[state.currentOutputGroup] = {
+            mode: 'audiovisual',
+            ratings: { ...state.audiovisualRatings },
+            notes: { ...state.audiovisualNotes },
+            completed: Object.values(state.audiovisualRatings).some(r => r >= 0),
             timestamp: new Date().toISOString()
         };
     } else {
@@ -2442,6 +3985,66 @@ loadReviewForCurrentGroup = function() {
         } else {
             resetRatings();
         }
+    } else if (state.reviewMode === 'audiovisual') {
+        const review = task.audiovisualReviews?.[state.currentOutputGroup];
+
+        if (review) {
+            state.audiovisualRatings = { ...review.ratings };
+            state.audiovisualNotes = { ...review.notes };
+            AUDIOVISUAL_DIMENSIONS.forEach(dim => {
+                document.querySelectorAll(`.rating-group[data-dimension="${dim.key}"][data-mode="audiovisual"]`).forEach(group => {
+                    highlightProfileStars(group, state.audiovisualRatings[dim.key]);
+                });
+                const dockInput = document.getElementById(`dock-note-${dim.key}`);
+                if (dockInput) dockInput.value = state.audiovisualNotes[dim.key] || '';
+                const noteInput = document.getElementById(`note-${dim.key}`);
+                if (noteInput) noteInput.value = state.audiovisualNotes[dim.key] || '';
+            });
+        } else {
+            // 无人工评审，尝试从自动评估预填
+            resetAudiovisualRatings();
+            const ev = task.autoEval;
+            if (ev) {
+                const evalMap = {
+                    overall_quality:          ev.audiovisual_integration?.detail_quality,
+                    processing_elements:      ev.vision_quality?.visual_processing_elements,
+                    processing_elements_time: ev.vision_quality?.visual_processing_elements,
+                    composition:              ev.vision_quality?.composition,
+                    composition_time:         ev.vision_quality?.composition,
+                    person:                   ev.content_subject?.man_negative_content,
+                    person_time:              ev.content_subject?.man_negative_content,
+                    creature:                 ev.content_subject?.creature_negative_content,
+                    creature_time:            ev.content_subject?.creature_negative_content,
+                    info_attributes:          ev.information?.information_attributes,
+                    questionable_info:        ev.information?.questionable_info,
+                    geographic_info:          ev.information?.geographic_info,
+                    timeliness_info:          ev.information?.timeliness_info,
+                    vulgar_intent:            ev.intent?.vulgar_intent,
+                    promotional_intent:       Array.isArray(ev.intent?.promotional_intent) ? ev.intent.promotional_intent[0] : ev.intent?.promotional_intent,
+                    immoral_values:           ev.values?.immoral_values
+                };
+                AUDIOVISUAL_DIMENSIONS.forEach(dim => {
+                    let d = evalMap[dim.key];
+                    if (!d) return;
+                    const isTime = dim.key.endsWith('_time');
+                    const score = isTime ? (d['time得分'] ?? -1) : (d['得分'] ?? -1);
+                    const reason = isTime ? (d['time理由'] || '') : (d['理由'] || '');
+                    if (score >= 0) {
+                        state.audiovisualRatings[dim.key] = score;
+                        document.querySelectorAll(`.rating-group[data-dimension="${dim.key}"][data-mode="audiovisual"]`).forEach(group => {
+                            highlightProfileStars(group, score);
+                        });
+                    }
+                    if (reason) {
+                        state.audiovisualNotes[dim.key] = reason;
+                        const dockInput = document.getElementById(`dock-note-${dim.key}`);
+                        if (dockInput) dockInput.value = reason;
+                        const noteInput = document.getElementById(`note-${dim.key}`);
+                        if (noteInput) noteInput.value = reason;
+                    }
+                });
+            }
+        }
     } else {
         const review = task.profileReviews?.[state.currentOutputGroup];
         
@@ -2477,6 +4080,8 @@ exportResults = function() {
     // 根据当前模式选择导出格式
     if (state.reviewMode === 'segment') {
         exportSegmentResults();
+    } else if (state.reviewMode === 'audiovisual') {
+        exportAudiovisualResults();
     } else {
         exportProfileResults();
     }
@@ -2628,19 +4233,96 @@ function exportProfileResults() {
     XLSX.writeFile(workbook, `全篇语义画像-${new Date().toISOString().slice(0, 10)}.xlsx`);
 }
 
+function exportAudiovisualResults() {
+    const tasks = getTasks();
+    const exportData = [];
+
+    const buildRow = (task, review, modelName) => {
+        const ratings = review?.ratings || {};
+        const notes = review?.notes || {};
+        const row = {
+            '任务ID': task.id || '',
+            '视频URL': task.video_url || '',
+            '模型名称': modelName,
+            '状态': review?.completed ? '已完成' : '未完成'
+        };
+        AUDIOVISUAL_DIMENSIONS.forEach(dim => {
+            row[`${dim.label}评分`] = ratings[dim.key] >= 0 ? ratings[dim.key] : '';
+            row[`${dim.label}备注`] = notes[dim.key] || '';
+        });
+        row['完成时间'] = review?.timestamp ? new Date(review.timestamp).toLocaleString('zh-CN') : '';
+        return row;
+    };
+
+    tasks.forEach(task => {
+        const groupCount = task.model_outputs?.length || 1;
+
+        if (groupCount > 1 && task.audiovisualReviews) {
+            task.audiovisualReviews.forEach((review, groupIndex) => {
+                const modelName = task.model_names?.[groupIndex] || `模型${groupIndex + 1}`;
+                exportData.push(buildRow(task, review, modelName));
+            });
+        } else {
+            const review = task.audiovisualReviews?.[0] || {};
+            const modelName = task.model_names?.[0] || '-';
+            exportData.push(buildRow(task, review, modelName));
+        }
+    });
+
+    const worksheet = XLSX.utils.json_to_sheet(exportData);
+    // 4 基础列 + 15*2 评分/备注列 + 1 完成时间 = 35 列
+    const cols = [
+        { wch: 10 }, { wch: 50 }, { wch: 15 }, { wch: 8 }
+    ];
+    AUDIOVISUAL_DIMENSIONS.forEach(() => {
+        cols.push({ wch: 12 }, { wch: 20 });
+    });
+    cols.push({ wch: 20 });
+    worksheet['!cols'] = cols;
+
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, worksheet, '基础音画质量');
+    XLSX.writeFile(workbook, `基础音画质量-${new Date().toISOString().slice(0, 10)}.xlsx`);
+}
+
 // 修改 normalizeModelOutput 以支持全篇语义画像数据
 const originalNormalizeModelOutput = normalizeModelOutput;
 normalizeModelOutput = function(data) {
     const output = {};
-    
+
     // 处理分段语义详情
     if (Array.isArray(data)) {
-        output.segments = convertSegmentArray(data);
-        return output;
+        // 解包 [{segment_detail: [...]}] 格式
+        if (data.length === 1 && typeof data[0] === 'object' && !Array.isArray(data[0]) && data[0].segment_detail) {
+            data = data[0];
+        } else {
+            output.segments = convertSegmentArray(data);
+            return output;
+        }
     }
-    
+
     if (data.segment_detail && Array.isArray(data.segment_detail)) {
         output.segments = convertSegmentArray(data.segment_detail);
+    }
+
+    // 解包 segment_output（Python dict 格式经解析后的结构）
+    if (data.segment_output) {
+        const so = data.segment_output;
+        if (Array.isArray(so)) {
+            output.segments = convertSegmentArray(so);
+        } else if (typeof so === 'object') {
+            // time-range dict: {'0-29': {text, vis}, ...}
+            const entries = Object.entries(so).filter(([k]) => /^\d/.test(k));
+            if (entries.length > 0) {
+                const arr = entries.map(([k, v]) => {
+                    const m = k.match(/^(\d+)\s*[-–]\s*(\d+)/);
+                    const seg = typeof v === 'object' ? { ...v } : { text: String(v) };
+                    if (m && !seg.time) seg.time = [parseFloat(m[1]), parseFloat(m[2])];
+                    return seg;
+                });
+                output.segments = convertSegmentArray(arr);
+            }
+        }
     }
     
     if (data.segments) {
@@ -2678,13 +4360,97 @@ normalizeModelOutput = function(data) {
         };
     }
     
+    // 处理基础音画质量数据
+    if (data.vision_quality || data.audiovisual_integration || data.content_subject) {
+        output.audiovisual = data;
+    }
+
     // 如果没有任何有效数据，返回原数据
-    if (!output.segments && !output.profile) {
+    if (!output.segments && !output.profile && !output.audiovisual) {
         return data;
     }
     
     return output;
 };
 
+// ============================================
+// 按 nid/id 排序
+// ============================================
+function sortTasksByNid() {
+    const tasks = getTasks();
+    if (tasks.length === 0) return;
+
+    // 提取数字部分用于排序，支持纯数字或 "task-1" 等格式
+    const extractNum = (id) => {
+        if (!id) return Infinity;
+        const match = String(id).match(/(\d+)/);
+        return match ? parseInt(match[1], 10) : Infinity;
+    };
+
+    tasks.sort((a, b) => extractNum(a.rawId || a.id) - extractNum(b.rawId || b.id));
+
+    // 重置选中索引到第一个未完成的任务
+    const isComplete = (t) => state.reviewMode === 'segment' ? t.review?.completed
+        : state.reviewMode === 'audiovisual' ? t.audiovisualReview?.completed
+        : t.profileReview?.completed;
+    const firstIncomplete = tasks.findIndex(t => !isComplete(t));
+    setTaskIndex(firstIncomplete >= 0 ? firstIncomplete : 0);
+
+    saveToLocalStorage();
+    updateUI();
+    selectTask(getTaskIndex());
+}
+window.sortTasksByNid = sortTasksByNid;
+
 // 暴露全局函数
 window.switchReviewMode = switchReviewMode;
+
+// 打分板收起/展开
+function toggleRatingDock() {
+    const dock = document.getElementById('rating-dock');
+    const body = document.getElementById('rating-dock-body');
+    const toggle = document.getElementById('rating-dock-toggle');
+    const icon = toggle.querySelector('.mdi');
+    const collapsed = !body.classList.contains('hidden');
+    if (collapsed) {
+        // 收起
+        body.classList.add('hidden');
+        dock.classList.remove('w-[calc(100%-300px)]', 'max-w-6xl');
+        dock.classList.add('w-auto');
+        icon.classList.replace('mdi-chevron-down', 'mdi-chevron-up');
+    } else {
+        // 展开
+        body.classList.remove('hidden');
+        dock.classList.remove('w-auto');
+        dock.classList.add('w-[calc(100%-300px)]', 'max-w-6xl');
+        icon.classList.replace('mdi-chevron-up', 'mdi-chevron-down');
+    }
+}
+window.toggleRatingDock = toggleRatingDock;
+
+// 侧边栏收起/展开
+function toggleSidebar() {
+    const sidebar = document.getElementById('task-sidebar');
+    const expandBtn = document.getElementById('sidebar-expand-btn');
+    const collapseBtn = document.getElementById('sidebar-collapse-btn');
+    const mainEl = document.querySelector('main');
+    const collapsed = sidebar.style.width !== '0px';
+    if (collapsed) {
+        sidebar.style.width = '0px';
+        sidebar.style.padding = '0';
+        sidebar.classList.add('opacity-0');
+        mainEl.classList.remove('rounded-l-[40px]', 'ml-2');
+        mainEl.classList.add('rounded-l-none', 'ml-0');
+        expandBtn.classList.remove('hidden');
+        collapseBtn.classList.add('hidden');
+    } else {
+        sidebar.style.width = '';
+        sidebar.style.padding = '';
+        sidebar.classList.remove('opacity-0');
+        mainEl.classList.remove('rounded-l-none', 'ml-0');
+        mainEl.classList.add('rounded-l-[40px]', 'ml-2');
+        expandBtn.classList.add('hidden');
+        collapseBtn.classList.remove('hidden');
+    }
+}
+window.toggleSidebar = toggleSidebar;
