@@ -1,84 +1,47 @@
 # 视频审查工作台
 
-纯前端视频模型输出审查平台，支持三种评审模式、多模型对比、工作区隔离。
+纯前端视频模型输出审查工具，支持三种评审模式、多模型对比、LLM 自动修复。无需后端，浏览器直接运行。
+
+**在线使用** → https://eastmoonzi.github.io/video-reviewer/
 
 ## 快速开始
 
-双击 `index.html` 打开，或启动本地服务器：
+在线打开上方链接即可使用，或本地双击 `index.html` 打开。
 
-```bash
-python3 -m http.server 8080
-```
+## 功能概览
 
-## 三种评审模式
-
-通过顶部按钮切换：
-
-| 模式 | 说明 | 评分维度 | 分值范围 |
-|------|------|---------|---------|
-| **分段语义详情** | 审查模型对视频的分段理解 | 时间段切分、文本理解、视觉理解、关键帧提取 | 1-3 分 |
-| **全篇语义画像** | 审查模型对视频的整体画像 | 叙事类型、视觉类型、摘要等 7 个维度 | 0-2 分 |
-| **基础音画质量** | 审查模型对音画质量的分析 | 总体质量、加工元素、构图等 16 个维度 | 0-2 分 |
+- **三种评审模式**：分段语义详情（1-3 分）、全篇语义画像（0-2 分）、基础音画质量（0-2 分）
+- **多模型对比**：同一视频可导入多个模型输出，顶部按钮一键切换
+- **导入格式**：Excel（.xlsx/.xls）和 JSONL，支持多文件导入自动按视频 URL 合并
+- **JSON 容错**：自动处理代码块包裹、XML 标签、Python dict 语法、截断修复
+- **LLM 修复**：解析失败的条目可调用 LLM 自动修复，内置默认 API 开箱即用
+- **多工作区**：数据完全隔离，独立保存任务和评分进度
+- **本地持久化**：所有数据保存在 localStorage，刷新不丢失
+- **导出**：一键导出 Excel，含所有维度评分和备注
 
 ## 导入格式
 
-### Excel（.xlsx / .xls）
+### Excel
 
-支持自动检测列结构：
+自动检测列结构，无需固定列顺序：
 
 | nid（可选）| 视频链接 | 标题（可选）| 模型A | 模型B | ... |
 |-----------|---------|-----------|-------|-------|-----|
 | 001 | https://video.mp4 | 视频标题 | {JSON} | {JSON} | ... |
 
-- **NID 列**：第一列表头含 `nid` / `data_id` / `编号` / `id` → 自动识别，用于排序和合并
-- **标题列**：紧跟 URL 后的列表头含"标题"关键词 → 自动识别为标题列
-- **评估列**：最后一列表头含"评估"关键词 → 自动识别为评估列，预填评分
-- **模型输出列**：其余列为模型输出 JSON，表头为模型名称
-- 支持 `<json>`、`<json_output>` 标签包裹，Python dict 语法（单引号），Markdown 代码块
-
 ### JSONL
 
-每行一个 JSON 对象：
+每行一个 JSON 对象，多文件导入时按 `video_url` 自动合并：
 
 ```json
-{
-  "nid": "001",
-  "video_url": "https://video.mp4",
-  "title": "视频标题",
-  "model_name": "模型A",
-  "response": { ... },
-  "cot": "..."
-}
+{"nid": "001", "video_url": "https://video.mp4", "model_name": "模型A", "response": { ... }}
 ```
-
-多文件导入时，按 `video_url` 自动合并为多模型对比。
-
-- `response` 为空时自动从 `cot` 字段提取结构化数据（支持 JSON 代码块、`<json_output>` 标签、Markdown 步骤格式）
-- JSON 兼容 Python dict 语法（单引号、`True/False/None`）、`<think>` 标签、截断修复
 
 ### 格式自动识别
 
-`response` / 模型输出的内容格式决定评审模式：
-
-- 含 `segment_detail` / `segment_output` 或数组 → 分段语义详情
-- 含 `global_profile` / `narrative_type` / `visual_type` → 全篇语义画像
-- 含 `vision_quality` / `audiovisual_integration` / `content_subject` → 基础音画质量
-
-## 界面布局
-
-- **左侧审查台**：任务列表、进度条、工作区切换，可收起以获得更大视频区域
-- **中间视频区**：视频播放器，控制面板集成在视频画框内（悬浮显示），含时间轴分段标记
-- **右侧内容面板**：模型输出详情，多模型切换按钮，延伸到底部可滚动查看完整内容
-- **底部打分板**：浮动打分面板，可收起/展开，不遮挡视频区域
-
-## 审查流程
-
-1. 点击左侧"+"按钮导入 Excel 或 JSONL 文件
-2. 从左侧任务列表选择任务
-3. 观看视频，查看右侧模型输出内容
-4. 如有多个模型输出，点击顶部按钮切换
-5. 在底部打分面板对各维度评分，可添加备注
-6. 点击"提交"保存并自动跳转下一条
+- 含 `segment_detail` / `segment_output` → 分段语义详情
+- 含 `global_profile` / `narrative_type` → 全篇语义画像
+- 含 `vision_quality` / `audiovisual_integration` → 基础音画质量
 
 ## 快捷键
 
@@ -87,79 +50,29 @@ python3 -m http.server 8080
 | Space | 播放 / 暂停 |
 | ← / → | 后退 / 前进 5 秒 |
 | Enter | 提交并下一条 |
-| Tab | 切换标签页（文本 → 视觉 → 关键帧） |
-| 1 / 2 / 3 | 快速评分（分段模式下） |
+| Tab | 切换标签页 |
+| 1 / 2 / 3 | 快速评分 |
 
-## 工作区
+## LLM 修复
 
-- 支持创建多个工作区，数据完全隔离
-- 点击左侧工作区名称管理（新建、切换、删除、重命名）
-- 每个工作区独立保存任务、评分进度
+导入时 JSON 解析失败的条目，可通过 LLM 自动修复为标准 JSON。
 
-## JSON 修复
+- **默认 API**：内置 DeepSeek API，勾选「使用默认 API」即可直接使用
+- **自定义 API**：取消勾选后填写 Base URL、API Key、模型名称
+- **单条修复**：点击解析失败卡片上的「修复此条」按钮
+- **批量修复**：点击侧边栏「全部修复」，后台并发处理不阻塞操作
 
-导入时如果某个模型输出字段无法解析为合法 JSON，该条目会以 amber 警告卡片展示原始内容，侧边栏顶部同时显示「N 条解析失败 [全部修复]」横幅。
+支持 DeepSeek、OpenAI、Anthropic 及任何 OpenAI 兼容接口。
 
-### 工具内修复
+## 命令行预处理
 
-1. 点击右上角齿轮按钮 ⚙ 打开「LLM 修复设置」
-2. 填写 Base URL、API Key、模型名称，点「保存」（设置持久化到 localStorage，刷新不丢失）
-3. **全部修复**：点侧边栏横幅「全部修复」→ 进度弹窗 → 完成后显示成功/失败统计
-4. **单条修复**：进入某个解析失败的任务 → amber 卡片底部点「🔧 修复此条」→ 静默刷新为正常内容
-
-支持的 API 提供商：
-
-| 提供商 | Base URL 示例 |
-|--------|--------------|
-| DeepSeek（默认）| `https://api.deepseek.com` |
-| Anthropic | `https://api.anthropic.com` |
-| OpenAI / GPT | `https://api.openai.com` |
-| Gemini（OpenAI 兼容模式）| `https://generativelanguage.googleapis.com/v1beta/openai` |
-| MiniMax | `https://api.minimax.chat` |
-| 其他 OpenAI 兼容服务 | 任意 |
-
-模型默认值：`deepseek-chat`（可在设置中修改）
-
-### 命令行预处理（离线 / 批量）
-
-适合在导入前批量修复，或在无浏览器环境下使用。需安装依赖：`pip install openpyxl`（Excel 脚本）。
-
-**Excel：**
+适合导入前批量修复，需 `pip install openpyxl`：
 
 ```bash
+# Excel
 export LLM_API_KEY=sk-...
-export LLM_BASE_URL=https://api.deepseek.com
-python3 repair_excel.py tasks.xlsx tasks_repaired.xlsx
+python3 repair_excel.py input.xlsx output.xlsx
+
+# JSONL
+python3 repair_jsonl.py input.jsonl output.jsonl --fields response
 ```
-
-**JSONL：**
-
-```bash
-export LLM_API_KEY=sk-...
-python3 repair_jsonl.py data.jsonl data_repaired.jsonl --fields response
-```
-
-通用选项（两个脚本均支持）：
-
-| 参数 | 说明 | 默认值 |
-|------|------|--------|
-| `--api-key` | LLM API Key（或环境变量 `LLM_API_KEY`）| — |
-| `--base-url` | API Base URL（或环境变量 `LLM_BASE_URL`）| `https://api.deepseek.com` |
-| `--model` | 模型名称（或环境变量 `LLM_MODEL`）| `deepseek-chat` |
-| `--batch-size` | 每批处理条目数，并发发出 | `10` |
-| `--dry-run` | 仅扫描统计，不调用 API | — |
-| `--fields`（仅 JSONL）| 要修复的字段名 | `response` |
-
-## 导出
-
-点击"导出"按钮下载 Excel，包含所有任务的评分和备注，每个维度对应一列评分 + 一列备注。
-
-## 其他功能
-
-- **视频倍速**：视频内控制面板倍速选择器，切换任务时倍速保持
-- **进度追踪**：左侧显示已完成 / 总数
-- **NID 排序**：支持按 NID 数字排序任务列表
-- **侧边栏收起**：点击顶部工具栏左侧按钮收起/展开审查台
-- **打分板收起**：点击打分板顶部按钮收起/展开
-- **URL 合并**：多文件导入时自动按视频 URL（去除 query 参数）合并同一视频的多模型输出
-- **本地持久化**：所有数据自动保存到 localStorage，刷新不丢失
