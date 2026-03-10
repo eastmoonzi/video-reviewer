@@ -1,6 +1,8 @@
 // ============================================
 // 视频审查工作台 - 主应用逻辑
+// build: 2026-03-10a
 // ============================================
+console.log('%c[app.js] 脚本已加载 ' + new Date().toLocaleTimeString(), 'color:green;font-weight:bold');
 
 // 全局状态
 const state = {
@@ -180,6 +182,7 @@ document.addEventListener('DOMContentLoaded', () => {
     restoreSidebarState();
     restoreRatingPanelState();
     restoreReviewMode();
+    loadLLMSettings();
     console.log('初始化完成');
 });
 
@@ -523,11 +526,325 @@ function switchTab(tabName) {
     renderTabContent(tabName);
 }
 
+// JSON 解析失败时的回退 UI
+function renderParseErrorFallback(containerId) {
+    const task = getCurrentTask();
+    const taskIndex = getTaskIndex();
+    const groupIndex = state.currentOutputGroup;
+    const output = task?.model_outputs?.[groupIndex] || task?.model_output;
+    if (!output?._parseError) return false;
+    const container = document.getElementById(containerId);
+    if (!container) return false;
+    container.innerHTML = `
+        <div class="p-4 rounded-2xl border border-amber-200 bg-amber-50">
+            <div class="flex items-center gap-2 mb-3">
+                <span class="mdi mdi-alert text-amber-500 text-lg"></span>
+                <span class="text-sm font-semibold text-amber-800">JSON 解析失败，原始内容：</span>
+            </div>
+            <pre class="text-xs text-gray-700 bg-white border border-amber-100 rounded-xl p-3 overflow-auto max-h-60 whitespace-pre-wrap break-all">${escapeHTML(output.raw || '')}</pre>
+            <button id="repair-single-btn-${taskIndex}-${groupIndex}"
+                    onclick="repairSingleOutput(${taskIndex}, ${groupIndex})"
+                    class="mt-3 px-3 py-1.5 text-xs bg-blue-500 text-white rounded-lg hover:bg-blue-600 flex items-center gap-1">
+                <span class="mdi mdi-wrench"></span> 修复此条
+            </button>
+        </div>`;
+    return true;
+}
+
+// ─── LLM 修复 ────────────────────────────────────────────────────────────────
+
+const LLM_REPAIR_PROMPT = '将以下内容输出为标准 json 格式，不要任何其他输出。\n\n';
+
+async function callLLMRepair(text) {
+    const useDefault = localStorage.getItem('llm-use-default') !== '';
+    const baseUrl = useDefault ? 'https://api.deepseek.com'              : (localStorage.getItem('llm-base-url') || '');
+    const apiKey  = useDefault ? 'sk-ffc1051e1e864ccfa8979445c45ca6e5'   : (localStorage.getItem('llm-api-key')  || '');
+    const model   = useDefault ? 'deepseek-chat'                         : (localStorage.getItem('llm-model')    || 'deepseek-chat');
+
+    if (!baseUrl || !apiKey) {
+        throw new Error('请先在设置中配置 LLM API Key 和 Base URL');
+    }
+
+    const isAnthropic = baseUrl.includes('anthropic');
+    const truncated = text.slice(0, 8000);
+
+    const messages = [
+        { role: 'user', content: LLM_REPAIR_PROMPT + truncated }
+    ];
+
+    const normalizedBase = baseUrl.replace(/\/+$/, '').replace(/\/v1$/i, '');
+
+    const endpoint = isAnthropic
+        ? normalizedBase + '/v1/messages'
+        : normalizedBase + '/v1/chat/completions';
+    const headers = isAnthropic
+        ? { 'Content-Type': 'application/json', 'x-api-key': apiKey, 'anthropic-version': '2023-06-01' }
+        : { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` };
+
+    const requestBody = { model, max_tokens: 8192, messages };
+    if (!isAnthropic) requestBody.response_format = { type: 'json_object' };
+
+    console.log('[LLM Repair] 请求:', endpoint, '模型:', model, '输入字符数:', truncated.length);
+
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 60000); // 60秒超时
+
+    let resp;
+    try {
+        resp = await fetch(endpoint, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify(requestBody),
+            signal: controller.signal
+        });
+    } catch (fetchErr) {
+        clearTimeout(timeout);
+        if (fetchErr.name === 'AbortError') {
+            throw new Error('请求超时（60秒），请检查 API 地址和网络');
+        }
+        throw new Error('网络请求失败: ' + fetchErr.message);
+    }
+    clearTimeout(timeout);
+
+    console.log('[LLM Repair] 响应状态:', resp.status);
+
+    if (!resp.ok) {
+        const errText = await resp.text();
+        throw new Error(`HTTP ${resp.status}: ${errText.slice(0, 200)}`);
+    }
+
+    const body = await resp.json();
+    let reply = isAnthropic
+        ? body?.content?.[0]?.text
+        : body?.choices?.[0]?.message?.content;
+
+    if (!reply) throw new Error('API 返回内容为空');
+
+    console.log('[LLM Repair] 回复长度:', reply.length, '前200字符:', reply.slice(0, 200));
+
+    // 用 quickParseJson 解析（自动处理代码块、XML标签、Python dict 等非标准格式）
+    const parsed = quickParseJson(reply);
+    if (parsed !== null && parsed !== undefined) {
+        console.log('[LLM Repair] 解析成功');
+        return parsed;
+    }
+
+    const preview = reply.slice(0, 150).replace(/\n/g, ' ');
+    throw new Error('LLM 返回无法解析为 JSON: ' + preview + '...');
+}
+
+async function repairSingleOutput(taskIndex, groupIndex) {
+    const tasks = getTasks();
+    const task = tasks[taskIndex];
+    if (!task) return;
+    const output = task.model_outputs?.[groupIndex];
+    if (!output?._parseError) return;
+
+    const btn = document.getElementById(`repair-single-btn-${taskIndex}-${groupIndex}`);
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="mdi mdi-autorenew animate-spin"></span> 修复中... 60s';
+        btn.classList.add('opacity-60', 'cursor-wait');
+    }
+
+    // 按钮倒计时
+    let countdown = 60;
+    const countdownTimer = setInterval(() => {
+        countdown--;
+        if (btn) {
+            if (countdown > 0) {
+                btn.innerHTML = `<span class="mdi mdi-autorenew animate-spin"></span> 修复中... ${countdown}s`;
+            } else {
+                btn.innerHTML = '<span class="mdi mdi-autorenew animate-spin"></span> 等待响应...';
+                clearInterval(countdownTimer);
+            }
+        } else {
+            clearInterval(countdownTimer);
+        }
+    }, 1000);
+
+    try {
+        const repaired = await callLLMRepair(output.raw);
+        clearInterval(countdownTimer);
+        if (repaired === null || repaired === undefined) {
+            throw new Error('LLM 无法识别该 JSON');
+        }
+        task.model_outputs[groupIndex] = normalizeModelOutput(repaired);
+        saveToLocalStorage();
+        updateUI();
+        // 重新渲染内容面板（updateUI 只刷新侧边栏，不刷新主面板）
+        selectTask(getTaskIndex());
+    } catch (e) {
+        clearInterval(countdownTimer);
+        console.error('[LLM Repair] 修复失败:', e);
+        // 不用 alert（会阻塞 UI），直接在按钮上显示错误
+        const btnNow = document.getElementById(`repair-single-btn-${taskIndex}-${groupIndex}`) || btn;
+        if (btnNow) {
+            btnNow.disabled = false;
+            btnNow.innerHTML = '<span class="mdi mdi-alert text-red-500"></span> 修复失败';
+            btnNow.classList.remove('opacity-60', 'cursor-wait');
+            setTimeout(() => {
+                btnNow.innerHTML = '<span class="mdi mdi-wrench"></span> 修复此条';
+            }, 3000);
+        }
+    }
+}
+
+async function repairAllErrors() {
+    const tasks = getTasks();
+    const toRepair = [];
+    tasks.forEach((task, ti) => {
+        task.model_outputs?.forEach((output, gi) => {
+            if (output?._parseError) toRepair.push({ ti, gi, raw: output.raw });
+        });
+    });
+
+    if (toRepair.length === 0) return;
+
+    // 直接在侧边栏 banner 上显示进度，不弹模态框
+    const banner = document.getElementById('parse-error-banner');
+    const bannerBtn = banner?.querySelector('button');
+    if (bannerBtn) {
+        bannerBtn.disabled = true;
+        bannerBtn.textContent = '修复中 0/' + toRepair.length;
+    }
+
+    let fixedCount = 0, failedCount = 0, doneCount = 0;
+
+    const CONCURRENCY = 3;
+    let cursor = 0;
+
+    async function runNext() {
+        while (cursor < toRepair.length) {
+            const idx = cursor++;
+            const { ti, gi, raw } = toRepair[idx];
+            try {
+                const repaired = await callLLMRepair(raw);
+                if (repaired !== null && repaired !== undefined) {
+                    tasks[ti].model_outputs[gi] = normalizeModelOutput(repaired);
+                    fixedCount++;
+                } else {
+                    failedCount++;
+                }
+            } catch (e) {
+                console.error(`[LLM Repair] 任务${ti}组${gi}修复失败:`, e.message);
+                failedCount++;
+            }
+            doneCount++;
+            // 实时更新 banner 进度
+            if (bannerBtn) bannerBtn.textContent = `修复中 ${doneCount}/${toRepair.length}`;
+        }
+    }
+
+    const workers = [];
+    for (let i = 0; i < Math.min(CONCURRENCY, toRepair.length); i++) {
+        workers.push(runNext());
+    }
+    await Promise.all(workers);
+
+    saveToLocalStorage();
+    updateUI();
+    // 如果当前任务的数据被修复了，刷新内容面板
+    selectTask(getTaskIndex());
+
+    // 恢复 banner 按钮
+    if (bannerBtn) {
+        bannerBtn.disabled = false;
+        bannerBtn.textContent = '全部修复';
+    }
+
+    console.log(`[LLM Repair] 批量修复完成：成功 ${fixedCount}，失败 ${failedCount}`);
+}
+
+function closeRepairModal() {
+    const modal = document.getElementById('repair-progress-modal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+}
+
+function updateParseErrorBanner() {
+    const tasks = getTasks();
+    let count = 0;
+    tasks.forEach(task => {
+        task.model_outputs?.forEach(o => { if (o?._parseError) count++; });
+    });
+    const banner = document.getElementById('parse-error-banner');
+    const countEl = document.getElementById('parse-error-count');
+    if (!banner || !countEl) return;
+    if (count > 0) {
+        countEl.textContent = count;
+        banner.classList.remove('hidden');
+    } else {
+        banner.classList.add('hidden');
+    }
+}
+
+// ─── LLM 设置 ─────────────────────────────────────────────────────────────────
+
+function showSettings() {
+    loadLLMSettings();
+    document.getElementById('settings-modal').classList.remove('hidden');
+    document.getElementById('settings-modal').classList.add('flex');
+}
+
+function closeSettingsModal() {
+    document.getElementById('settings-modal').classList.add('hidden');
+    document.getElementById('settings-modal').classList.remove('flex');
+}
+
+function saveLLMSettings() {
+    const useDefault = document.getElementById('llm-use-default').checked;
+    localStorage.setItem('llm-use-default', useDefault ? '1' : '');
+    if (!useDefault) {
+        localStorage.setItem('llm-base-url', document.getElementById('llm-base-url').value.trim());
+        localStorage.setItem('llm-api-key',  document.getElementById('llm-api-key').value.trim());
+        localStorage.setItem('llm-model',    document.getElementById('llm-model').value.trim());
+    }
+    closeSettingsModal();
+}
+
+function loadLLMSettings() {
+    const useDefault = localStorage.getItem('llm-use-default') !== '';
+    const checkbox = document.getElementById('llm-use-default');
+    if (checkbox) checkbox.checked = useDefault;
+
+    const baseUrlEl = document.getElementById('llm-base-url');
+    const apiKeyEl  = document.getElementById('llm-api-key');
+    const modelEl   = document.getElementById('llm-model');
+    if (baseUrlEl) baseUrlEl.value = localStorage.getItem('llm-base-url') || '';
+    if (apiKeyEl)  apiKeyEl.value  = localStorage.getItem('llm-api-key')  || '';
+    if (modelEl)   modelEl.value   = localStorage.getItem('llm-model')    || '';
+
+    toggleDefaultLLM(useDefault);
+}
+
+function toggleDefaultLLM(checked) {
+    const fields = ['llm-base-url', 'llm-api-key', 'llm-model'];
+    fields.forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.disabled = checked;
+        if (checked) {
+            el.classList.add('bg-gray-100', 'text-gray-400', 'cursor-not-allowed');
+        } else {
+            el.classList.remove('bg-gray-100', 'text-gray-400', 'cursor-not-allowed');
+        }
+    });
+}
+window.toggleDefaultLLM = toggleDefaultLLM;
+
 function renderTabContent(tabName) {
     const task = getCurrentTask();
     if (!task) return;
 
     const output = task.model_output || {};
+    if (output._parseError) {
+        const containers = { text: 'text-content', visual: 'visual-content', keyframe: 'keyframe-content' };
+        renderParseErrorFallback(containers[tabName] || 'text-content');
+        Object.values(containers).filter(id => id !== containers[tabName])
+            .forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = ''; });
+        return;
+    }
     const segments = output.segments || [];
 
     switch (tabName) {
@@ -834,7 +1151,7 @@ function renderOutputGroupSwitcher(task) {
     switcher.classList.remove('hidden');
     
     // 渲染按钮 - 使用模型名称
-    buttonsContainer.innerHTML = task.model_outputs.map((_, i) => {
+    buttonsContainer.innerHTML = task.model_outputs.map((output, i) => {
         const reviewsArr = state.reviewMode === 'segment' ? task.reviews
             : state.reviewMode === 'audiovisual' ? task.audiovisualReviews
             : task.profileReviews;
@@ -842,12 +1159,14 @@ function renderOutputGroupSwitcher(task) {
         const isComplete = review?.completed;
         const isActive = i === state.currentOutputGroup;
         const modelName = task.model_names?.[i] || `模型${i + 1}`;
-        
+        const isError = output?._parseError;
+
         return `
-            <button onclick="switchOutputGroup(${i})" 
+            <button onclick="switchOutputGroup(${i})"
                     class="px-3 py-1 text-sm rounded ${isActive ? 'bg-blue-500 text-white' : 'bg-white border hover:bg-gray-100'}"
-                    title="${modelName}">
+                    title="${isError ? '[解析失败] ' : ''}${modelName}">
                 ${isComplete ? '<span class="mdi mdi-check text-green-500"></span>' : ''}
+                ${isError ? '<span class="mdi mdi-alert text-amber-400"></span>' : ''}
                 ${modelName}
             </button>
         `;
@@ -1076,6 +1395,7 @@ function renderTaskList() {
         }
 
         const displayName = task.id || task.rawId || ('任务 ' + (index + 1));
+        const hasParseError = task.model_outputs?.some(o => o?._parseError);
 
         return `
             <div class="task-item p-3 border-b cursor-pointer ${isActive ? 'active' : ''}"
@@ -1085,7 +1405,10 @@ function renderTaskList() {
                         <span class="mdi ${isComplete ? 'mdi-check-circle text-green-500' : 'mdi-circle-outline text-gray-300'} mr-2"></span>
                         <span class="text-sm font-medium truncate max-w-[150px] instant-tip" data-tip="${escapeHTML(displayName)}">${escapeHTML(displayName)}</span>
                     </div>
-                    ${isComplete ? `<span class="text-xs text-yellow-500"><span class="mdi mdi-star"></span> ${avgRating}</span>` : ''}
+                    <div class="flex items-center gap-1">
+                        ${hasParseError ? `<span class="mdi mdi-alert text-amber-400 text-sm" title="部分模型输出 JSON 解析失败"></span>` : ''}
+                        ${isComplete ? `<span class="text-xs text-yellow-500"><span class="mdi mdi-star"></span> ${avgRating}</span>` : ''}
+                    </div>
                 </div>
                 <div class="text-xs text-gray-400 mt-1 truncate">${task.video_url}</div>
             </div>`;
@@ -1112,6 +1435,7 @@ function updateProgress() {
 function updateUI() {
     renderTaskList();
     updateProgress();
+    updateParseErrorBanner();
 }
 
 // ============================================
@@ -1280,10 +1604,7 @@ function parseJsonl(content) {
             // 尝试解析单行 JSON，带容错处理
             let jsonStr = line.trim();
             if (!jsonStr) return;
-            
-            // 修复可能的 JSON 格式问题
-            jsonStr = fixMissingCommas(jsonStr);
-            
+
             const obj = JSON.parse(jsonStr);
             
             // 跳过没有视频的行（兼容 videos 数组和 video_url 字符串）
@@ -1306,189 +1627,6 @@ function parseJsonl(content) {
     return tasks;
 }
 
-// 从 cot（chain-of-thought）字段提取结构化数据，作为 response 为空时的 fallback
-function extractResponseFromCot(cot) {
-    if (!cot || typeof cot !== 'string') return null;
-    const text = cot.trim();
-    if (!text) return null;
-
-    // 先尝试从 cot 中提取 JSON 代码块或 <json_output> 标签
-    const jsonBlocks = text.match(/```(?:json)?\s*\n([\s\S]*?)```/g);
-    const jsonOutputTags = text.match(/<json_output>\s*([\s\S]*?)\s*<(?:\/json_output|json_output)>/g);
-    const allBlocks = [];
-    if (jsonBlocks) {
-        for (const block of jsonBlocks) {
-            allBlocks.push(block.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '').trim());
-        }
-    }
-    if (jsonOutputTags) {
-        for (const tag of jsonOutputTags) {
-            allBlocks.push(tag.replace(/<\/?json_output>/g, '').trim());
-        }
-    }
-    for (const content of allBlocks) {
-        try { return JSON.parse(content); } catch (_) {}
-        try { return JSON.parse(pythonDictToJson(content)); } catch (_) {}
-        try { return JSON.parse(tryFixTruncatedArray(content)); } catch (_) {}
-    }
-
-    // 解析 Markdown 步骤格式，提取分段信息
-    // 支持两种格式：
-    //   格式A（步骤式）：步骤1分段，步骤2文案，步骤3画面，步骤4关键帧
-    //   格式B（分段列表式）：每段包含时间、文案、画面、关键帧
-    const segments = [];
-
-    // 格式B：按分段编号列表式（"1. **标题**：[start, end]" 或 "- 分段1：[0, 28]"）
-    // 每个分段下方包含文案、画面、关键帧子项
-    const segBlocks = text.split(/\n(?=\d+[\.\、）)]\s*\*{0,2})/);
-    let foundListFormat = false;
-
-    for (const block of segBlocks) {
-        // 匹配分段头：数字. **标题**：[start, end] 或 数字. 标题 [start, end]
-        const headerMatch = block.match(/^\d+[\.\、）)]\s*\*{0,2}([^*\n]*?)\*{0,2}\s*[:：]?\s*\[(\d+\.?\d*)\s*[,，]\s*(\d+\.?\d*)\]/);
-        if (!headerMatch) continue;
-        foundListFormat = true;
-
-        const start = parseFloat(headerMatch[2]);
-        const end = parseFloat(headerMatch[3]);
-
-        // 提取文案（"文案："或"- 文案："后的内容）
-        const textMatch = block.match(/(?:文案|文字|text)\s*[:：]\s*([\s\S]*?)(?=\n\s*[-*]?\s*(?:画面|视觉|visual|关键帧|key_frame|$))/i);
-        const segText = textMatch ? textMatch[1].replace(/\n/g, ' ').trim().replace(/^[""]|[""]$/g, '') : '';
-
-        // 提取画面描述（"画面描述："或"- 画面："后的内容）
-        const visMatch = block.match(/(?:画面描述?|视觉描述?|visual|vis)\s*[:：]\s*([\s\S]*?)(?=\n\s*[-*]?\s*(?:关键帧|key_frame|$)|\n\n)/i);
-        const segVis = visMatch ? visMatch[1].replace(/\n/g, ' ').trim() : '';
-
-        // 提取关键帧
-        const keyframes = [];
-        const kfRegex = /(?:关键帧\d*|时间[点：:]?\s*)\s*[:：]?\s*(\d+\.?\d*)\s*秒?\s*[,，：:]\s*([\s\S]*?)(?=\n\s*(?:\d+[\.\、]|关键帧|时间点|\*|$)|\n\n|$)/gi;
-        let kfMatch;
-        while ((kfMatch = kfRegex.exec(block)) !== null) {
-            keyframes.push({
-                time: parseFloat(kfMatch[1]),
-                label: kfMatch[2].replace(/\n/g, ' ').trim(),
-                reason: ''
-            });
-        }
-
-        segments.push({
-            start, end,
-            label: `片段 ${segments.length + 1}`,
-            description: segText,
-            visual: segVis,
-            keyframes
-        });
-    }
-
-    if (foundListFormat && segments.length > 0) {
-        console.log(`从 cot 字段提取到 ${segments.length} 个分段（列表格式）`);
-        return { _from_cot: true, segment_detail: segments.map(s => ({
-            time: [s.start, s.end],
-            text: s.description,
-            vis: s.visual,
-            key_frame: s.keyframes.map(kf => ({ time: kf.time, desc: kf.label }))
-        }))};
-    }
-
-    // 格式A：步骤式，从各步骤中分别提取时间、文案、画面、关键帧
-    // 步骤1/分段：提取时间范围
-    const step1Match = text.match(/(?:步骤\s*1|分段|step\s*1)[\s\S]*?(?=###\s*步骤\s*2|###\s*(?:生成)?文案|$)/i);
-    if (step1Match) {
-        const timeRanges = [];
-        const rangeRegex = /\[(\d+\.?\d*)\s*[,，]\s*(\d+\.?\d*)\]/g;
-        let rm;
-        while ((rm = rangeRegex.exec(step1Match[0])) !== null) {
-            timeRanges.push([parseFloat(rm[1]), parseFloat(rm[2])]);
-        }
-
-        if (timeRanges.length > 0) {
-            // 为每个分段初始化
-            timeRanges.forEach((tr, i) => {
-                segments.push({
-                    start: tr[0], end: tr[1],
-                    label: `片段 ${i + 1}`,
-                    description: '', visual: '', keyframes: []
-                });
-            });
-
-            // 步骤2/文案
-            const step2Match = text.match(/(?:步骤\s*2|生成文案|step\s*2)[\s\S]*?(?=###\s*步骤\s*3|###\s*(?:生成)?画面|$)/i);
-            if (step2Match) {
-                const captions = step2Match[0].match(/(?:[""])([\s\S]*?)(?:[""])/g);
-                if (captions) {
-                    captions.forEach((c, i) => {
-                        if (i < segments.length) {
-                            segments[i].description = c.replace(/^[""]|[""]$/g, '').trim();
-                        }
-                    });
-                } else {
-                    // 只有一段且没有引号包裹：取整段文字
-                    if (segments.length === 1) {
-                        const lines = step2Match[0].split('\n').filter(l => l.trim() && !l.match(/^#+|^步骤/));
-                        segments[0].description = lines.join(' ').trim().replace(/^[""]|[""]$/g, '');
-                    }
-                }
-            }
-
-            // 步骤3/画面
-            const step3Match = text.match(/(?:步骤\s*3|生成画面|画面描述|step\s*3)[\s\S]*?(?=###\s*步骤\s*4|###\s*(?:抽取)?关键帧|$)/i);
-            if (step3Match) {
-                // 按段落拆分
-                const visBlocks = step3Match[0].split(/\n(?=\d+[-\.\、）)]|\n)/);
-                let visIdx = 0;
-                for (const vb of visBlocks) {
-                    const stripped = vb.replace(/^\d+[-\.\、）)]\s*/, '').replace(/^#+.*\n/, '').trim();
-                    if (stripped && visIdx < segments.length) {
-                        // 检查是否带时间范围开头
-                        const timePrefix = stripped.match(/^(\d+\.?\d*)\s*[-–]\s*(\d+\.?\d*)\s*秒?\s*[,，：:]\s*/);
-                        if (timePrefix) {
-                            segments[visIdx].visual = stripped.slice(timePrefix[0].length).trim();
-                        } else if (stripped.length > 20) {
-                            segments[visIdx].visual = stripped;
-                        }
-                        visIdx++;
-                    }
-                }
-                // 如果没拆到，但只有一段，取全部
-                if (visIdx === 0 && segments.length === 1) {
-                    const lines = step3Match[0].split('\n').filter(l => l.trim() && !l.match(/^#+|^步骤/));
-                    segments[0].visual = lines.join(' ').trim();
-                }
-            }
-
-            // 步骤4/关键帧
-            const step4Match = text.match(/(?:步骤\s*4|抽取关键帧|关键帧|step\s*4)[\s\S]*?(?=###\s*步骤\s*5|###\s*结果|$)/i);
-            if (step4Match) {
-                const kfRegex2 = /(?:\d+[\.\、）)])?\s*(?:\*{2})?(?:时间[点：:]?\s*)?(\d+\.?\d*)\s*秒?\s*(?:\*{2})?(?:[,，：:])\s*([\s\S]*?)(?=\n\s*\d+[\.\、）)]|\n\s*\*{2}|$)/g;
-                let km;
-                while ((km = kfRegex2.exec(step4Match[0])) !== null) {
-                    const kfTime = parseFloat(km[1]);
-                    const kfDesc = km[2].replace(/\n/g, ' ').trim();
-                    // 分配给最近的分段
-                    for (let i = segments.length - 1; i >= 0; i--) {
-                        if (kfTime >= segments[i].start) {
-                            segments[i].keyframes.push({ time: kfTime, label: kfDesc, reason: '' });
-                            break;
-                        }
-                    }
-                }
-            }
-
-            if (segments.length > 0) {
-                console.log(`从 cot 字段提取到 ${segments.length} 个分段（步骤格式）`);
-                return { _from_cot: true, segment_detail: segments.map(s => ({
-                    time: [s.start, s.end],
-                    text: s.description,
-                    vis: s.visual,
-                    key_frame: s.keyframes.map(kf => ({ time: kf.time, desc: kf.label }))
-                }))};
-            }
-        }
-    }
-
-    return null;
-}
 
 // 将 JSONL 对象转换为任务格式
 function convertJsonlToTask(obj, index) {
@@ -1518,99 +1656,34 @@ function convertJsonlToTask(obj, index) {
     }
 
     // response 可能是字符串（如被 <json_output> 标签包裹），需要先解析
+    let rawResponseStr = null;  // 记录原始字符串，解析失败时用于 _parseError
     if (typeof response === 'string') {
-        let respStr = response.trim();
+        const respStr = response.trim();
         if (!respStr) {
             response = null;
         } else {
-            // 检测多代码块格式：```json ... ``` ```json ... ```
-            let cleaned = respStr.replace(/<think>[\s\S]*?<\/think>/g, '').replace(/<\/?json_output>/g, '').trim();
-            const codeBlocks = cleaned.match(/```(?:json)?\s*\n([\s\S]*?)```/g);
-            if (codeBlocks && codeBlocks.length >= 2) {
-                // 多代码块：分别解析，合并结果
-                let merged = null;
-                for (const block of codeBlocks) {
-                    const content = block.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '').trim();
-                    let parsed = null;
-                    try { parsed = JSON.parse(content); } catch (_) {}
-                    if (!parsed) { try { parsed = JSON.parse(tryFixTruncatedArray(content)); } catch (_) {} }
-                    if (!parsed) continue;
-                    if (!merged) {
-                        merged = Array.isArray(parsed) ? { segment_detail: parsed } : parsed;
-                    } else {
-                        if (typeof parsed === 'object' && !Array.isArray(parsed)) {
-                            Object.assign(merged, parsed);
-                        }
-                    }
-                }
-                if (merged) { response = merged; }
-                else { response = null; }
-            } else {
-                // 单块/无代码块：走原有逻辑
-                respStr = extractJsonFromText(respStr);
-                try {
-                    response = JSON.parse(respStr);
-                } catch (e) {
-                    // 尝试剥离 Python 风格的 segment_output/segment_detail 外层包裹
-                    const wrapperMatch = respStr.match(/^{['"](segment_output|segment_detail)['"]\s*:\s*/);
-                    if (wrapperMatch) {
-                        let inner = respStr.slice(wrapperMatch[0].length);
-                        let depth = 0, inStr = false, strChar = '', esc = false, valueEnd = -1;
-                        for (let ci = 0; ci < inner.length; ci++) {
-                            const ch = inner[ci];
-                            if (esc) { esc = false; continue; }
-                            if (inStr) {
-                                if (ch === '\\') { esc = true; continue; }
-                                if (ch === strChar) { inStr = false; }
-                                continue;
-                            }
-                            if (ch === '"' || ch === "'") { inStr = true; strChar = ch; continue; }
-                            if (ch === '[' || ch === '{') depth++;
-                            else if (ch === ']' || ch === '}') {
-                                depth--;
-                                if (depth === 0) { valueEnd = ci; break; }
-                            }
-                        }
-                        if (valueEnd !== -1) {
-                            const valueStr = inner.substring(0, valueEnd + 1);
-                            try {
-                                const innerData = JSON.parse(valueStr);
-                                response = { [wrapperMatch[1]]: innerData };
-                            } catch (_) {
-                                try {
-                                    const innerData = JSON.parse(pythonDictToJson(valueStr));
-                                    response = { [wrapperMatch[1]]: innerData };
-                                } catch (_2) {
-                                    response = null;
-                                }
-                            }
-                        }
-                    }
-                    if (!response) {
-                        let converted = pythonDictToJson(respStr);
-                        try {
-                            response = JSON.parse(converted);
-                        } catch (e2) {
-                            try {
-                                response = JSON.parse(tryFixTruncatedArray(converted));
-                            } catch (e3) {
-                                console.warn(`第 ${index + 1} 行 response 字符串解析失败:`, e.message);
-                                response = null;
-                            }
-                        }
-                    }
-                }
-            }
+            rawResponseStr = respStr;
+            response = quickParseJson(respStr);
         }
     }
-    
-    // response 为空时，尝试从 cot 字段提取数据
+
+    // response 为空时，尝试从 cot 字段提取（简化版：仅解析代码块/XML 标签内的 JSON）
     if (!response && obj.cot) {
-        response = extractResponseFromCot(obj.cot);
+        response = extractJsonFromCot(obj.cot);
     }
 
     // response 可能是 null、数组或单个对象
     if (!response) {
+        // 区分"原本就无 response 字段"和"字符串解析失败"
+        if (rawResponseStr) {
+            // 解析失败：设置 _parseError 供 LLM 修复
+            const errorOutput = { _parseError: true, raw: rawResponseStr.slice(0, 4000) };
+            task.model_output = errorOutput;
+            task.model_outputs = [errorOutput];
+            task.model_names = [obj.model_name || '默认'];
+            task.reviews = [null];
+            return task;
+        }
         // 没有分段数据，仍然可以导入（只有视频）
         task.model_output = { segments: [] };
         task.model_outputs = [{ segments: [] }];
@@ -1664,22 +1737,33 @@ function convertJsonlToTask(obj, index) {
             );
             // 提取顶层 key_frame（可能存在于 segment_output 同级）
             const topKeyFrames = Array.isArray(segmentData.key_frame) ? segmentData.key_frame : [];
+            // 判断 topKeyFrames 是否为纯描述字符串（无时间信息）
+            const topKfHasTime = topKeyFrames.some(kf => {
+                if (typeof kf === 'string') return !isNaN(parseFloat(kf));
+                return kf && (kf.time !== undefined);
+            });
             if (entries.length > 0 && /^\d/.test(entries[0][0])) {
-                segmentData = entries.map(([k, v]) => {
+                segmentData = entries.map(([k, v], mapIdx) => {
                     // 解析 '0-29' 或 '0-29s' 为 time
                     const timeMatch = k.match(/^(\d+)\s*[-–]\s*(\d+)/);
                     const seg = typeof v === 'object' ? { ...v } : { text: String(v) };
                     if (timeMatch && !seg.time) {
                         seg.time = [parseFloat(timeMatch[1]), parseFloat(timeMatch[2])];
                     }
-                    // 若段内无 key_frame，从顶层 key_frame 按时间匹配分配
-                    if (!seg.key_frame && topKeyFrames.length > 0 && seg.time) {
-                        const segStart = seg.time[0], segEnd = seg.time[1];
-                        const matched = topKeyFrames.filter(kf => {
-                            const t = typeof kf === 'string' ? parseFloat(kf) : (kf.time || 0);
-                            return t >= segStart && t <= segEnd;
-                        });
-                        if (matched.length > 0) seg.key_frame = matched;
+                    // 若段内无 key_frame，从顶层 key_frame 分配
+                    if (!seg.key_frame && topKeyFrames.length > 0) {
+                        if (topKfHasTime && seg.time) {
+                            // 有时间戳：按时间范围匹配
+                            const segStart = seg.time[0], segEnd = seg.time[1];
+                            const matched = topKeyFrames.filter(kf => {
+                                const t = typeof kf === 'string' ? parseFloat(kf) : (kf.time || 0);
+                                return t >= segStart && t <= segEnd;
+                            });
+                            if (matched.length > 0) seg.key_frame = matched;
+                        } else if (!topKfHasTime && mapIdx === 0) {
+                            // 纯描述字符串：无法按时间分配，全部挂到第一段
+                            seg.key_frame = topKeyFrames;
+                        }
                     }
                     return seg;
                 });
@@ -1849,688 +1933,164 @@ function mergeTasksByKey(tasks) {
 
     return merged;
 }
-
-// 通用截断 JSON/数组修复：找到最后一个完整的 },] 或 } 闭合
-function tryFixTruncatedArray(jsonStr) {
-    // 找到第一个 [ 或 { 的位置，确定顶层结构
-    const firstBracket = jsonStr.search(/[\[{]/);
-    if (firstBracket === -1) throw new Error('无法修复：无 JSON 结构');
-
-    // 逐字符扫描，找最后一个顶层括号完全匹配的位置
+// 从模型输出文本中剥离包装标签并解析 JSON（最小集容错版）
+// 只处理合法 JSON 的包装格式，本身写法有问题（Python dict 等）一律返回 null
+/**
+ * 将 Python dict 字符串的单引号转为双引号（状态机实现，正确处理转义和嵌套）
+ */
+/**
+ * 修复被截断的 JSON：扫描结构，补全未闭合的字符串、数组、对象
+ */
+function repairTruncatedJson(s) {
+    const stack = []; // 记录未闭合的 [ 和 {
     let inString = false, escape = false;
-    let stack = [];
-    let lastCompleteTop = -1; // 最后一个使顶层闭合的位置
-    let lastCompleteObj = -1; // 最后一个 braceCount==0 的 } 位置
-
-    for (let i = firstBracket; i < jsonStr.length; i++) {
-        const c = jsonStr[i];
+    for (let i = 0; i < s.length; i++) {
+        const c = s[i];
         if (escape) { escape = false; continue; }
         if (c === '\\' && inString) { escape = true; continue; }
-        if (c === '"' && !escape) { inString = !inString; continue; }
+        if (c === '"' && !inString) { inString = true; continue; }
+        if (c === '"' && inString) { inString = false; continue; }
         if (inString) continue;
-
-        if (c === '[' || c === '{') {
-            stack.push(c);
-        } else if (c === ']' || c === '}') {
-            stack.pop();
-            if (stack.length === 0) lastCompleteTop = i;
-            if (c === '}' && stack.filter(s => s === '{').length === 0) lastCompleteObj = i;
-        }
+        if (c === '{') stack.push('}');
+        else if (c === '[') stack.push(']');
+        else if (c === '}' || c === ']') stack.pop();
     }
+    // 如果在字符串中间被截断，先闭合字符串
+    let suffix = '';
+    if (inString) suffix += '"';
+    // 逆序闭合所有未闭合的括号
+    suffix += stack.reverse().join('');
+    if (!suffix) return null; // 没有需要修复的
 
-    // 情况1：找到完整闭合位置，截取到那里
-    if (lastCompleteTop !== -1) {
-        return jsonStr.substring(firstBracket, lastCompleteTop + 1);
+    // 去掉截断点之前的尾部逗号（如 [1,2, 截断）
+    const trimmed = s.replace(/,\s*$/, '');
+
+    // 依次尝试多种补全策略
+    const candidates = [
+        trimmed + suffix,           // 去掉尾部逗号 + 闭合
+        s + suffix,                 // 原文 + 闭合
+        trimmed + 'null' + suffix,  // 去掉逗号 + null + 闭合（截断在冒号后）
+        s + 'null' + suffix,        // 原文 + null + 闭合
+    ];
+    for (const candidate of candidates) {
+        try {
+            JSON.parse(candidate);
+            return candidate;
+        } catch (_) {}
     }
-
-    // 情况2：截断了，尝试找最后一个完整的对象，然后闭合所有括号
-    if (lastCompleteObj !== -1) {
-        let truncated = jsonStr.substring(firstBracket, lastCompleteObj + 1);
-        // 去掉尾部逗号
-        truncated = truncated.replace(/,\s*$/, '');
-        // 统计未闭合的括号
-        stack = [];
-        inString = false; escape = false;
-        for (let i = 0; i < truncated.length; i++) {
-            const c = truncated[i];
-            if (escape) { escape = false; continue; }
-            if (c === '\\' && inString) { escape = true; continue; }
-            if (c === '"' && !escape) { inString = !inString; continue; }
-            if (inString) continue;
-            if (c === '[' || c === '{') stack.push(c);
-            else if (c === ']' || c === '}') stack.pop();
-        }
-        // 闭合剩余括号
-        const closers = stack.reverse().map(s => s === '[' ? ']' : '}').join('');
-        return truncated + closers;
-    }
-
-    throw new Error('无法修复：找不到完整的 JSON 元素');
+    return null;
 }
 
-// 尝试修复被截断的JSON（Excel单元格字符限制导致）
-function tryFixTruncatedJson(jsonStr) {
-    // 策略：只保留 segment_detail 数组，忽略 global_profile
-    // 因为我们只关心 segment_detail 中的数据
-    
-    // 查找 segment_detail 数组的结束位置
-    const segmentDetailMatch = jsonStr.match(/"segment_detail"\s*:\s*\[/);
-    if (!segmentDetailMatch) {
-        // 没有找到 segment_detail，无法修复
-        throw new Error('无法修复：未找到 segment_detail');
-    }
-    
-    const startIndex = segmentDetailMatch.index + segmentDetailMatch[0].length;
-    
-    // 尝试找到 segment_detail 数组的完整结束
-    let bracketCount = 1;
-    let inString = false;
-    let escape = false;
-    let arrayEndIndex = -1;
-    
-    for (let i = startIndex; i < jsonStr.length; i++) {
-        const char = jsonStr[i];
-        
-        if (escape) {
-            escape = false;
-            continue;
-        }
-        
-        if (char === '\\' && inString) {
-            escape = true;
-            continue;
-        }
-        
-        if (char === '"' && !escape) {
-            inString = !inString;
-            continue;
-        }
-        
-        if (!inString) {
-            if (char === '[') {
-                bracketCount++;
-            } else if (char === ']') {
-                bracketCount--;
-                if (bracketCount === 0) {
-                    arrayEndIndex = i;
-                    break;
-                }
-            }
-        }
-    }
-    
-    if (arrayEndIndex !== -1) {
-        // segment_detail 数组是完整的，只取这部分
-        const segmentDetailContent = jsonStr.substring(startIndex, arrayEndIndex);
-        return `{"segment_detail":[${segmentDetailContent}]}`;
-    }
-    
-    // segment_detail 数组不完整，尝试找到最后一个完整的对象
-    // 从后往前找最后一个完整的 } 或 }]
-    let lastCompleteIndex = -1;
-    bracketCount = 0;
-    let braceCount = 0;
-    inString = false;
-    escape = false;
-    
-    for (let i = startIndex; i < jsonStr.length; i++) {
-        const char = jsonStr[i];
-        
-        if (escape) {
-            escape = false;
-            continue;
-        }
-        
-        if (char === '\\' && inString) {
-            escape = true;
-            continue;
-        }
-        
-        if (char === '"' && !escape) {
-            inString = !inString;
-            continue;
-        }
-        
-        if (!inString) {
-            if (char === '[') bracketCount++;
-            else if (char === ']') bracketCount--;
-            else if (char === '{') braceCount++;
-            else if (char === '}') {
-                braceCount--;
-                // 当所有打开的花括号都关闭时，记录位置
-                if (braceCount === 0 && bracketCount >= 0) {
-                    lastCompleteIndex = i;
-                }
-            }
-        }
-    }
-    
-    if (lastCompleteIndex !== -1) {
-        // 找到最后一个完整对象的位置
-        const segmentDetailContent = jsonStr.substring(startIndex, lastCompleteIndex + 1);
-        // 检查是否需要去掉末尾的逗号
-        const trimmed = segmentDetailContent.replace(/,\s*$/, '');
-        return `{"segment_detail":[${trimmed}]}`;
-    }
-    
-    throw new Error('无法修复：无法找到完整的 segment_detail 内容');
-}
-
-// 修复字符串内容中未转义的双引号（如中文文本中用作书名号的引号）
-function fixUnescapedQuotesInContent(jsonStr) {
-    // 问题：中文文本中经常用英文双引号作为书名号，如 "通过"提出认知目标""
-    // 这会导致JSON解析失败，因为解析器认为字符串在第一个"处结束了
-    
-    // 策略：检测在中文字符之间的双引号，将其转义
-    // 中文字符范围：\u4e00-\u9fff (CJK统一汉字)
-    
-    let result = '';
-    let i = 0;
-    
-    while (i < jsonStr.length) {
-        const char = jsonStr[i];
-        
-        if (char === '"') {
-            // 检查这个引号是否在中文内容中
-            // 条件：前面是中文字符，且这不是键名开始或值结束的位置
-            const prevChar = i > 0 ? jsonStr[i - 1] : '';
-            const nextChar = i < jsonStr.length - 1 ? jsonStr[i + 1] : '';
-            
-            // 检测中文字符
-            const isChinese = (c) => /[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(c);
-            const isStructural = (c) => /[{}\[\]:,\s]/.test(c);
-            
-            // 如果前一个字符是中文，且后一个字符也是中文或中文标点，
-            // 那么这个引号很可能是内容中的书名号
-            if (isChinese(prevChar) && (isChinese(nextChar) || /[，。、；：！？]/.test(nextChar))) {
-                result += '\\"';
-            }
-            // 如果前一个字符是中文，后一个不是结构性字符（如逗号、冒号、括号）
-            // 也可能是书名号的开始
-            else if (isChinese(prevChar) && !isStructural(nextChar) && nextChar !== '"') {
-                result += '\\"';
-            }
-            // 如果后一个字符是中文，前一个不是结构性字符
-            // 可能是书名号的结束
-            else if (isChinese(nextChar) && !isStructural(prevChar) && prevChar !== '\\') {
-                // 检查前面是否已经有转义符
-                if (result.length > 0 && result[result.length - 1] !== '\\') {
-                    result += '\\"';
-                } else {
-                    result += char;
-                }
-            }
-            // 新增：处理连续书名号的情况，如 "爸爸""爷爷"
-            // 前一个是引号，后一个是中文，说明这是连续书名号的开始
-            else if (prevChar === '"' && isChinese(nextChar)) {
-                result += '\\"';
-            }
-            // 前一个是中文，后一个是引号，说明这是连续书名号的结束
-            else if (isChinese(prevChar) && nextChar === '"') {
-                result += '\\"';
-            }
-            else {
-                result += char;
-            }
-        } else {
-            result += char;
-        }
-        i++;
-    }
-    
-    return result;
-}
-
-// 修复缺少逗号的非标准JSON（如 "key": "value"\n"key2": "value2"）
-function fixMissingCommas(jsonStr) {
-    let result = jsonStr;
-    
-    // 先修复中文标点符号
-    // 中文冒号 -> 英文冒号（只在键后面，即 "key"：的形式）
-    result = result.replace(/"：/g, '":');
-    
-    // 修复字符串内容中未转义的双引号
-    result = fixUnescapedQuotesInContent(result);
-    
-    // 模式1: "value"\n"key" -> "value",\n"key"
-    result = result.replace(/(")\s*\n\s*(")/g, '$1,\n$2');
-    
-    // 模式2: }\n"key" -> },\n"key"
-    result = result.replace(/(})\s*\n\s*(")/g, '$1,\n$2');
-    
-    // 模式3: ]\n"key" -> ],\n"key"
-    result = result.replace(/(])\s*\n\s*(")/g, '$1,\n$2');
-    
-    // 模式4: "value" "key" (同一行，缺少逗号)
-    result = result.replace(/(")\s+(")/g, '$1, $2');
-    
-    // 模式5: } "key" (同一行)
-    result = result.replace(/(})\s+(")/g, '$1, $2');
-    
-    // 模式6: ] "key" (同一行)
-    result = result.replace(/(])\s+(")/g, '$1, $2');
-    
-    return result;
-}
-
-// 修复多余的闭合括号（如 "summary": "..."\n}\n"intent_type"）
-function fixExtraBraces(jsonStr) {
-    // 检测并修复 }\n"key": 模式中多余的 }
-    // 这种情况是：在字符串值后面错误地添加了 }
-    let result = jsonStr;
-    
-    // 查找 "...",\n}\n"key": 这种模式，去掉多余的 }
-    // 但要保留正确的 },\n"key": 模式
-    
-    // 通过遍历来精确处理
-    let output = '';
-    let i = 0;
-    let braceStack = 0;
-    let bracketStack = 0;
-    let inString = false;
-    let escape = false;
-    
-    while (i < result.length) {
-        const char = result[i];
-        
-        if (escape) {
-            output += char;
-            escape = false;
-            i++;
-            continue;
-        }
-        
-        if (char === '\\' && inString) {
-            output += char;
-            escape = true;
-            i++;
-            continue;
-        }
-        
-        if (char === '"') {
-            inString = !inString;
-            output += char;
-            i++;
-            continue;
-        }
-        
-        if (!inString) {
-            if (char === '{') {
-                braceStack++;
-                output += char;
-            } else if (char === '}') {
-                braceStack--;
-                // 检查是否是多余的 }
-                // 情况1：braceStack < 0，明显多余
-                // 情况2：braceStack == 0（顶层对象刚关闭），但后面还有 "key": 模式，说明对象提前关闭了
-                if (braceStack <= 0) {
-                    // 检查后面是否还有 "key": 的模式（跳过空白和可能的逗号）
-                    const remaining = result.substring(i + 1).trim();
-                    // 匹配 "key" 或 ,"key" 模式（表示后面还有JSON内容）
-                    if (remaining.match(/^,?\s*"[^"]+"\s*:/)) {
-                        // 后面还有键值对，说明这个 } 是多余的
-                        braceStack = braceStack < 0 ? 0 : 1; // 恢复到正确的层级
-                        i++;
-                        continue;
-                    }
-                }
-                output += char;
-            } else if (char === '[') {
-                bracketStack++;
-                output += char;
-            } else if (char === ']') {
-                bracketStack--;
-                output += char;
-            } else {
-                output += char;
-            }
-        } else {
-            output += char;
-        }
-        i++;
-    }
-    
-    return output;
-}
-
-// 清理JSON字符串中的控制字符和特殊字符
-function cleanJsonControlChars(jsonStr) {
-    // 方法1: 先尝试简单清理 - 移除JSON结构之外的换行和空白，保留字符串值内容
-    // 把多行JSON压缩成单行，同时保护字符串值中的内容
-    
-    let result = '';
-    let inString = false;
-    let escape = false;
-    
-    for (let i = 0; i < jsonStr.length; i++) {
-        const char = jsonStr[i];
-        const code = jsonStr.charCodeAt(i);
-        
-        // 处理转义状态
-        if (escape) {
-            result += char;
-            escape = false;
-            continue;
-        }
-        
-        // 检测转义字符
-        if (char === '\\' && inString) {
-            escape = true;
-            result += char;
-            continue;
-        }
-        
-        // 检测字符串边界
-        if (char === '"') {
-            inString = !inString;
-            result += char;
-            continue;
-        }
-        
-        // 处理字符
-        if (inString) {
-            // 在字符串内部：清理控制字符
-            if (code < 32) {
-                if (char === '\n') {
-                    result += '\\n';
-                } else if (char === '\r') {
-                    // 跳过回车符（通常和换行符一起出现）
-                    continue;
-                } else if (char === '\t') {
-                    result += '\\t';
-                } else {
-                    // 其他控制字符直接跳过
-                    continue;
-                }
-            } else if (code === 0x2028 || code === 0x2029 || code === 0x0085) {
-                // Unicode换行符
-                result += '\\n';
-            } else if (code >= 0x7F && code <= 0x9F) {
-                // C1控制字符，跳过
-                continue;
-            } else {
-                result += char;
-            }
-        } else {
-            // 不在字符串内部：结构性字符
-            if (char === '\n' || char === '\r') {
-                // 结构性换行，可以用空格替代或直接跳过
-                // 跳过，因为JSON结构不需要换行
-                continue;
-            } else if (char === '\t' || char === ' ') {
-                // 缩进空白，可以跳过或保留一个空格
-                // 如果上一个字符已经是空格，跳过
-                if (result.length > 0 && result[result.length - 1] === ' ') {
-                    continue;
-                }
-                result += ' ';
-            } else if (code < 32) {
-                // 其他控制字符，跳过
-                continue;
-            } else {
-                result += char;
-            }
-        }
-    }
-    
-    return result;
-}
-
-// 清理JSON末尾的非JSON内容（如Python字典格式的内容）
-function cleanJsonTrailingContent(jsonStr) {
-    // 如果以数组开头，找到数组结束位置
-    if (jsonStr.trim().startsWith('[')) {
-        let bracketCount = 0;
-        let inString = false;
-        let escape = false;
-        
-        for (let i = 0; i < jsonStr.length; i++) {
-            const char = jsonStr[i];
-            
-            if (escape) {
-                escape = false;
-                continue;
-            }
-            
-            if (char === '\\' && inString) {
-                escape = true;
-                continue;
-            }
-            
-            if (char === '"' && !escape) {
-                inString = !inString;
-                continue;
-            }
-            
-            if (!inString) {
-                if (char === '[') bracketCount++;
-                else if (char === ']') {
-                    bracketCount--;
-                    if (bracketCount === 0) {
-                        // 找到数组结束位置，截取
-                        return jsonStr.substring(0, i + 1);
-                    }
-                }
-            }
-        }
-    }
-    
-    // 如果以对象开头，找到对象结束位置
-    if (jsonStr.trim().startsWith('{')) {
-        let braceCount = 0;
-        let inString = false;
-        let escape = false;
-        
-        for (let i = 0; i < jsonStr.length; i++) {
-            const char = jsonStr[i];
-            
-            if (escape) {
-                escape = false;
-                continue;
-            }
-            
-            if (char === '\\' && inString) {
-                escape = true;
-                continue;
-            }
-            
-            if (char === '"' && !escape) {
-                inString = !inString;
-                continue;
-            }
-            
-            if (!inString) {
-                if (char === '{') braceCount++;
-                else if (char === '}') {
-                    braceCount--;
-                    if (braceCount === 0) {
-                        // 找到对象结束位置，截取
-                        return jsonStr.substring(0, i + 1);
-                    }
-                }
-            }
-        }
-    }
-    
-    return jsonStr;
-}
-
-// 解析单个JSON单元格
-// 将 Python dict repr 字符串转换为合法 JSON 字符串
-// 逐字符解析，正确处理三种引号模式：
-//  1. 'key': 'value'              — 普通单引号
-//  2. 'desc': \"value with 'x'\"    — 转义双引号包含撇号
-//  3. 'desc': "value with \"x\" quotes" — 双引号字符串包含中文书名号等
 function pythonDictToJson(s) {
-    s = s.replace(/\bTrue\b/g, 'true').replace(/\bFalse\b/g, 'false').replace(/\bNone\b/g, 'null');
-    const result = [];
-    let i = 0;
-    while (i < s.length) {
+    const out = [];
+    let inDouble = false, inSingle = false;
+    for (let i = 0; i < s.length; i++) {
         const c = s[i];
-        if (c === "'") {
-            // 单引号字符串：收集到匹配的闭合单引号
-            result.push('"');
-            i++;
-            while (i < s.length) {
-                const c2 = s[i];
-                if (c2 === "'") { result.push('"'); i++; break; }
-                else if (c2 === '\\' && i + 1 < s.length) {
-                    const nc = s[i + 1];
-                    if (nc === "'")       { result.push("'"); i += 2; }      // \' → '
-                    else if (nc === '"')  { result.push('\\"'); i += 2; }     // \" → \"
-                    else if (nc === '\\') { result.push('\\\\'); i += 2; }    // \\ → \\
-                    else { result.push(c2, nc); i += 2; }
+        const prev = i > 0 ? s[i - 1] : '';
+        if (c === '"' && !inSingle && prev !== '\\') {
+            inDouble = !inDouble;
+            out.push(c);
+        } else if (c === "'" && !inDouble && prev !== '\\') {
+            if (!inSingle) {
+                // 检查是否是缩写撇号（如 it's, don't）：前一个字符是字母，下一个也是字母
+                if (i > 0 && i < s.length - 1 && /[a-zA-Z]/.test(s[i - 1]) && /[a-zA-Z]/.test(s[i + 1])) {
+                    out.push("'"); // 保留缩写撇号
+                    continue;
                 }
-                else if (c2 === '"') { result.push('\\"'); i++; }            // 裸双引号 → 转义
-                else { result.push(c2); i++; }
+                inSingle = true;
+                out.push('"');
+            } else {
+                inSingle = false;
+                out.push('"');
             }
-        } else if (c === '"') {
-            // 双引号字符串：收集到匹配的闭合双引号
-            result.push('"');
-            i++;
-            while (i < s.length) {
-                const c2 = s[i];
-                if (c2 === '"') { result.push('"'); i++; break; }
-                else if (c2 === '\\' && i + 1 < s.length) { result.push(c2, s[i + 1]); i += 2; }
-                else { result.push(c2); i++; }
-            }
+        } else if (c === '"' && inSingle) {
+            out.push('\\"'); // 单引号字符串内的双引号需要转义
         } else {
-            result.push(c);
-            i++;
+            out.push(c);
         }
     }
-    return result.join('');
+    return out.join('');
 }
 
-// 从模型输出文本中提取 JSON/dict 内容（剥离思考链、XML 标签、markdown 代码块）
-function extractJsonFromText(s) {
-    // 移除 <think>...</think>
-    s = s.replace(/<think>[\s\S]*?<\/think>/g, '');
-    // 移除 <json_output> 标签
-    s = s.replace(/<\/?json_output>/g, '');
-    // 处理 <json> 或 <json 标签包裹的内容
-    // 格式变体：<json>{...}</json>  |  <json>\n```json{...}```\n</json>  |  <json{...}</json>  |  <json{...}
-    // 先尝试提取 <json>...</json> 或 <json...</json> 块中的内容
-    const jsonTagMatch = s.match(/<json\s*>?\s*([\s\S]*?)\s*<\/json>/i);
-    if (jsonTagMatch) {
-        s = jsonTagMatch[1];
-    } else {
-        // 没有闭合的 </json>，移除开头的 <json> 或 <json（无 >）
-        s = s.replace(/^<json\s*>?\s*/i, '');
-        s = s.replace(/\s*<\/json>\s*$/i, '');
+function quickParseJson(str) {
+    if (!str || !str.trim()) return null;
+    str = str.trim();
+
+    // 1. 剥离 <think>...</think>
+    str = str.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+
+    // 2. 剥离最外层 XML 包装标签（<json_output>...</json_output>、<json>...</json> 等）
+    str = str.replace(/^<([a-z_]+)>\s*([\s\S]*?)\s*<\/\1>$/i, '$2').trim();
+    // 无闭合标签的情况：去掉开头 <json_output> / <json>
+    str = str.replace(/^<json(?:_\w+)?\s*>\s*/i, '').trim();
+
+    // 3. 剥离三重引号包装（"""...""" 或 '''...'''）
+    str = str.replace(/^"{3}\s*([\s\S]*?)\s*"{3}$/, '$1').trim();
+    str = str.replace(/^'{3}\s*([\s\S]*?)\s*'{3}$/, '$1').trim();
+
+    // 4. 多代码块：分别解析后合并（用于 segment+profile 双块格式）
+    const blocks = str.match(/```(?:json)?\s*\n?([\s\S]*?)```/g);
+    if (blocks && blocks.length >= 2) {
+        let merged = null;
+        for (const block of blocks) {
+            const content = block.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '').trim();
+            let parsed = null;
+            try { parsed = JSON.parse(content); } catch (_) {
+                try { parsed = JSON.parse(pythonDictToJson(content.replace(/\bTrue\b/g, 'true').replace(/\bFalse\b/g, 'false').replace(/\bNone\b/g, 'null'))); } catch (_2) {}
+            }
+            if (!parsed) continue;
+            if (!merged) {
+                merged = Array.isArray(parsed) ? { segment_detail: parsed } : parsed;
+            } else if (typeof parsed === 'object' && !Array.isArray(parsed)) {
+                Object.assign(merged, parsed);
+            }
+        }
+        if (merged) return merged;
+        return null;  // 多块但全部解析失败
     }
-    s = s.trim();
-    // 移除 markdown 代码块
-    s = s.replace(/^```(?:json)?\s*\n?/, '');
-    s = s.replace(/\n?```\s*$/, '');
-    return s.trim();
+
+    // 5. 单代码块：提取内容再解析
+    if (blocks && blocks.length === 1) {
+        str = blocks[0].replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '').trim();
+    }
+
+    // 6. 直接 JSON.parse
+    try { return JSON.parse(str); } catch (_) {}
+
+    // 7. Python dict 语法容错（单引号 key/value、True/False/None）
+    try {
+        let py = str;
+        // True/False/None → true/false/null（仅替换独立单词，不影响字符串内容）
+        py = py.replace(/\bTrue\b/g, 'true').replace(/\bFalse\b/g, 'false').replace(/\bNone\b/g, 'null');
+        // 单引号 → 双引号：逐字符状态机转换，正确处理嵌套引号
+        py = pythonDictToJson(py);
+        return JSON.parse(py);
+    } catch (_) { return null; }
 }
+
+// 从 cot 字段提取 JSON（简化版：只找代码块和 xml 标签内的 JSON，不做 Markdown 文本解析）
+function extractJsonFromCot(cot) {
+    if (!cot || typeof cot !== 'string') return null;
+    return quickParseJson(cot.trim());
+}
+
+
 
 function parseJsonCell(cellValue, taskIndex, colIndex) {
     if (!cellValue) return null;
+    if (typeof cellValue === 'object' && cellValue !== null) return normalizeModelOutput(cellValue);
 
-    // 如果已经是对象，直接使用
-    if (typeof cellValue === 'object' && cellValue !== null) {
-        return normalizeModelOutput(cellValue);
-    }
+    const str = cellValue.toString().replace(/^\uFEFF/, '').trim();
+    if (!str) return null;
 
-    // 尝试解析JSON字符串
-    try {
-        let jsonStr = cellValue.toString();
+    const parsed = quickParseJson(str);
+    if (parsed !== null) return normalizeModelOutput(parsed);
 
-        // 清理可能的BOM字符
-        jsonStr = jsonStr.replace(/^\uFEFF/, '');
-
-        // 检测多代码块格式：```json ... ``` ```json ... ```（含 segment + profile）
-        let cleaned = jsonStr.replace(/<think>[\s\S]*?<\/think>/g, '').replace(/<\/?json_output>/g, '').replace(/<\/?json\s*>/g, '').trim();
-        const codeBlocks = cleaned.match(/```(?:json)?\s*\n([\s\S]*?)```/g);
-        if (codeBlocks && codeBlocks.length >= 2) {
-            let merged = null;
-            for (const block of codeBlocks) {
-                const content = block.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '').trim();
-                let parsed = null;
-                try { parsed = JSON.parse(content); } catch (_) {}
-                if (!parsed) { try { parsed = JSON.parse(tryFixTruncatedArray(content)); } catch (_) {} }
-                if (!parsed) continue;
-                if (!merged) {
-                    merged = Array.isArray(parsed) ? { segment_detail: parsed } : parsed;
-                } else {
-                    if (typeof parsed === 'object' && !Array.isArray(parsed)) {
-                        Object.assign(merged, parsed);
-                    }
-                }
-            }
-            if (merged) return normalizeModelOutput(merged);
-        }
-
-        // 提取 JSON/dict 内容（剥离 <think>、<json_output>、markdown 代码块等）
-        jsonStr = extractJsonFromText(jsonStr);
-
-        // 如果为空，返回null
-        if (!jsonStr) return null;
-
-        // 如果字符串被双引号包裹（Excel常见行为），去掉外层引号
-        if (jsonStr.startsWith('"') && jsonStr.endsWith('"')) {
-            jsonStr = jsonStr.slice(1, -1);
-            jsonStr = jsonStr.replace(/""/g, '"');
-        }
-
-        // 如果字符串以单引号包裹，去掉单引号
-        if (jsonStr.startsWith("'") && jsonStr.endsWith("'")) {
-            jsonStr = jsonStr.slice(1, -1);
-        }
-
-        // 先尝试直接解析标准 JSON
-        let parsed;
-        try {
-            parsed = JSON.parse(jsonStr);
-        } catch (e1) {
-            // 尝试剥离 segment_output/segment_detail 外层包裹（Python 风格混合引号）
-            const wrapperMatch = jsonStr.match(/^{['"](segment_output|segment_detail)['"]\s*:\s*/);
-            if (wrapperMatch) {
-                let inner = jsonStr.slice(wrapperMatch[0].length);
-                let depth = 0, inStr = false, strChar = '', esc = false, valueEnd = -1;
-                for (let ci = 0; ci < inner.length; ci++) {
-                    const ch = inner[ci];
-                    if (esc) { esc = false; continue; }
-                    if (inStr) { if (ch === '\\') { esc = true; continue; } if (ch === strChar) { inStr = false; } continue; }
-                    if (ch === '"' || ch === "'") { inStr = true; strChar = ch; continue; }
-                    if (ch === '[' || ch === '{') depth++;
-                    else if (ch === ']' || ch === '}') { depth--; if (depth === 0) { valueEnd = ci; break; } }
-                }
-                if (valueEnd !== -1) {
-                    const valueStr = inner.substring(0, valueEnd + 1);
-                    try { parsed = { [wrapperMatch[1]]: JSON.parse(valueStr) }; }
-                    catch (_) { try { parsed = { [wrapperMatch[1]]: JSON.parse(pythonDictToJson(valueStr)) }; } catch (_2) {} }
-                }
-            }
-            if (!parsed) {
-            // 尝试修复常见 JSON 格式问题后再解析
-            let fixedStr = fixMissingCommas(jsonStr);
-            fixedStr = fixExtraBraces(fixedStr);
-            fixedStr = cleanJsonControlChars(fixedStr);
-            fixedStr = cleanJsonTrailingContent(fixedStr);
-            try {
-                parsed = JSON.parse(fixedStr);
-            } catch (e2) {
-                // 尝试 Python dict → JSON 转换（逐字符解析，处理所有引号模式）
-                try {
-                    parsed = JSON.parse(pythonDictToJson(jsonStr));
-                } catch (e3) {
-                    // 最后尝试修复截断的 JSON
-                    console.warn(`任务 ${taskIndex + 1} 第${colIndex}列 多次解析失败，尝试修复截断...`);
-                    const fixedJson = tryFixTruncatedJson(jsonStr);
-                    parsed = JSON.parse(fixedJson);
-                }
-            }
-            }
-        }
-        return normalizeModelOutput(parsed);
-    } catch (e) {
-        console.warn(`任务 ${taskIndex + 1} 第${colIndex}列 JSON解析失败:`, e.message);
-        return null;
-    }
+    // 无法解析 → _parseError，交 LLM 修复
+    console.warn(`任务 ${taskIndex + 1} 第${colIndex}列 JSON解析失败，需 LLM 修复`);
+    return { _parseError: true, raw: str.slice(0, 4000) };
 }
+
 
 // 从Excel单元格提取URL（处理超链接格式）
 function extractUrlFromCell(worksheet, cellAddress) {
@@ -2569,141 +2129,169 @@ function parseExcel(arrayBuffer) {
     const workbook = XLSX.read(arrayBuffer, { type: 'array', raw: false });
     const firstSheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[firstSheetName];
-    
+
     // 转换为JSON数组，header: 1 表示返回二维数组，raw: false 保持字符串格式
     const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false, defval: '' });
-    
+
     if (rows.length === 0) {
         throw new Error('Excel 文件为空');
     }
-    
+
     console.log('Excel 解析原始数据行数:', rows.length);
 
-    // 第一行为表头，智能检测各列含义
+    // 第一行为表头，智能检测各列含义（不依赖列顺序，只看列标题）
     const headerRow = rows[0];
+    const colCount = headerRow.length;
 
-    // 检测是否有 nid 列（第一列表头含 nid/id/编号）
-    const firstHeader = headerRow[0]?.toString().trim().toLowerCase() || '';
-    const nidKeywords = ['nid', 'data_id', '编号'];
-    const hasNidCol = nidKeywords.some(kw => firstHeader === kw || firstHeader.includes(kw));
-    const urlCol = hasNidCol ? 1 : 0; // 视频链接列
-    console.log('NID列检测:', hasNidCol ? `第1列为NID列 ("${headerRow[0]}")` : '无NID列');
-
-    // 检测标题列（紧跟 URL 列之后）
-    const titleKeywords = ['标题', '视频标题', 'title', '名称', '视频名称'];
-    const titleCheckCol = urlCol + 1;
-    const titleCheckHeader = headerRow[titleCheckCol]?.toString().trim().toLowerCase() || '';
-    const hasTitleCol = titleKeywords.some(kw => titleCheckHeader.includes(kw.toLowerCase()));
-    const dataStartCol = hasTitleCol ? titleCheckCol + 1 : titleCheckCol; // 模型输出数据起始列
-    console.log('标题列检测:', hasTitleCol ? `第${titleCheckCol + 1}列为标题列 ("${headerRow[titleCheckCol]}")` : '无标题列');
-
-    const modelNames = [];
-    // 检测是否有自动评估列（表头含"评估"/"eval"关键词）
+    // 定义各类型列的关键词
+    const nidKeywords = ['nid', 'data_id', '编号', 'id'];
+    const urlKeywords = ['url', '链接', 'video_url', '视频链接', '视频地址', '视频url', 'video'];
+    const titleKeywords = ['标题', 'title', '名称', 'name', '视频标题'];
     const evalKeywords = ['评估', '自动评估', 'eval', 'evaluation', '评测'];
-    let evalColIndex = -1; // 评估数据列号（0-based in row array）
-    for (let col = dataStartCol; col < headerRow.length; col++) {
-        const h = headerRow[col]?.toString().trim().toLowerCase() || '';
-        if (evalKeywords.some(kw => h.includes(kw.toLowerCase()))) {
-            evalColIndex = col;
+
+    // 遍历所有列，根据标题匹配类型
+    let nidCol = -1;
+    let urlCol = -1;
+    let titleCol = -1;
+    let evalCol = -1;
+    const modelCols = []; // 模型输出列
+
+    for (let col = 0; col < colCount; col++) {
+        const header = headerRow[col]?.toString().trim().toLowerCase() || '';
+
+        // 跳过空列
+        if (!header) continue;
+
+        // 检测 nid 列
+        if (nidCol === -1 && nidKeywords.some(kw => header === kw || header.includes(kw))) {
+            nidCol = col;
+            console.log(`NID列检测: 第${col + 1}列 ("${headerRow[col]}")`);
+            continue;
+        }
+
+        // 检测视频链接列
+        if (urlCol === -1 && urlKeywords.some(kw => header.includes(kw))) {
+            urlCol = col;
+            console.log(`视频链接列检测: 第${col + 1}列 ("${headerRow[col]}")`);
+            continue;
+        }
+
+        // 检测标题列
+        if (titleCol === -1 && titleKeywords.some(kw => header.includes(kw))) {
+            titleCol = col;
+            console.log(`标题列检测: 第${col + 1}列 ("${headerRow[col]}")`);
+            continue;
+        }
+
+        // 检测评估列
+        if (evalCol === -1 && evalKeywords.some(kw => header.includes(kw))) {
+            evalCol = col;
             console.log(`自动评估列检测: 第${col + 1}列 ("${headerRow[col]}")`);
-        } else {
-            modelNames.push(headerRow[col]?.toString().trim() || `模型${col}`);
+            continue;
+        }
+
+        // 其他列视为模型输出列
+        modelCols.push({ col: col, name: headerRow[col]?.toString().trim() || `模型${col + 1}` });
+    }
+
+    // 如果没有检测到链接列，尝试从非nid非title的非数字列中找
+    if (urlCol === -1) {
+        for (let col = 0; col < colCount; col++) {
+            if (col === nidCol || col === titleCol || col === evalCol) continue;
+            const header = headerRow[col]?.toString().trim().toLowerCase() || '';
+            // 跳过明显是序号的列
+            if (header === '序号' || header === 'no' || header === 'index') continue;
+            urlCol = col;
+            console.log(`视频链接列(推断): 第${col + 1}列 ("${headerRow[col]}")`);
+            break;
         }
     }
-    console.log('模型名称列表:', modelNames);
-    
+
+    // 确定模型列（排除已识别的特殊列）
+    const finalModelCols = [];
+    for (let col = 0; col < colCount; col++) {
+        if (col === nidCol || col === urlCol || col === titleCol || col === evalCol) continue;
+        const header = headerRow[col]?.toString().trim() || '';
+        if (header) {
+            finalModelCols.push({ col, name: header });
+        }
+    }
+    console.log('模型列:', finalModelCols.map(m => `${m.name}(第${m.col + 1}列)`));
+
     // 数据从第二行开始
     const dataRows = rows.slice(1);
     const startRowIndex = 2; // Excel行号从1开始，数据从第2行开始
-    
+
     return dataRows.map((row, i) => {
-        // 提取 nid（用于排序和合并），处理科学计数法大数字
-        let nid = hasNidCol && row[0] ? String(row[0]).trim() : '';
+        // 提取 nid
+        let nid = (nidCol >= 0 && row[nidCol]) ? String(row[nidCol]).trim() : '';
         if (nid && /^[\d.]+e\+?\d+$/i.test(nid)) {
-            // 科学计数法转整数字符串
             try { nid = BigInt(Math.round(Number(nid))).toString(); } catch (_) {}
         }
+
         // 提取标题
-        const titleColIdx = urlCol + 1;
-        const title = hasTitleCol && row[titleColIdx] ? String(row[titleColIdx]).trim() : '';
+        const title = (titleCol >= 0 && row[titleCol]) ? String(row[titleCol]).trim() : '';
         const obj = { id: title || nid || `task-${i + 1}`, rawId: nid || `task-${i + 1}` };
-        const excelRowNum = startRowIndex + i;
-        // URL 列地址（A 或 B）
-        const urlColLetter = String.fromCharCode(65 + urlCol); // 0->A, 1->B
-        const cellAddress = `${urlColLetter}${excelRowNum}`;
-        const cell = worksheet[cellAddress];
 
-        // 获取URL：优先从超链接Target获取，否则用单元格值
+        // 获取视频URL
         let videoUrl = '';
+        if (urlCol >= 0 && row[urlCol]) {
+            const excelRowNum = startRowIndex + i;
+            const urlColLetter = String.fromCharCode(65 + urlCol);
+            const cellAddress = `${urlColLetter}${excelRowNum}`;
+            const cell = worksheet[cellAddress];
 
-        if (cell) {
-            // 方法1：检查单元格的超链接对象
-            if (cell.l && cell.l.Target) {
-                videoUrl = cell.l.Target;
-                console.log(`任务 ${i + 1} 从超链接获取URL`);
+            if (cell) {
+                if (cell.l && cell.l.Target) {
+                    videoUrl = cell.l.Target;
+                } else if (cell.v) {
+                    videoUrl = String(cell.v).trim();
+                } else if (cell.w) {
+                    videoUrl = String(cell.w).trim();
+                }
             }
-            // 方法2：从单元格值获取（可能本身就是URL文本）
-            else if (cell.v) {
-                videoUrl = String(cell.v).trim();
-                console.log(`任务 ${i + 1} 从cell.v获取URL`);
-            }
-            else if (cell.w) {
-                videoUrl = String(cell.w).trim();
-                console.log(`任务 ${i + 1} 从cell.w获取URL`);
+            if (!videoUrl) {
+                videoUrl = String(row[urlCol]).trim();
             }
         }
 
-        // 方法3：从rows数组获取（备用）
-        if (!videoUrl && row[urlCol]) {
-            videoUrl = String(row[urlCol]).trim();
-            console.log(`任务 ${i + 1} 从row[${urlCol}]获取URL`);
-        }
-        
         obj.video_url = videoUrl;
-        console.log(`任务 ${i + 1}: URL=${videoUrl.substring(0, 80)}...`);
-        
-        // 从数据起始列开始解析模型输出JSON数据
+
+        // 解析模型输出
         obj.model_outputs = [];
         obj.model_names = [];
-        let modelNameIdx = 0;
 
-        for (let col = dataStartCol; col < row.length; col++) {
-            if (col === evalColIndex) continue; // 跳过评估列
-            const parsed = parseJsonCell(row[col], i, col + 1);
-            // 支持分段语义详情(segments)或全篇语义画像(profile)数据
-            if (parsed && ((parsed.segments && parsed.segments.length > 0) || parsed.profile || parsed.audiovisual)) {
+        for (const modelCol of finalModelCols) {
+            const parsed = parseJsonCell(row[modelCol.col], i, modelCol.col + 1);
+            if (!parsed) continue; // null = 空单元格，静默跳过
+            if (parsed._parseError ||
+                (parsed.segments && parsed.segments.length > 0) ||
+                parsed.profile ||
+                parsed.audiovisual) {
                 obj.model_outputs.push(parsed);
-                obj.model_names.push(modelNames[modelNameIdx] || `模型${col}`);
+                obj.model_names.push(modelCol.name);
             }
-            modelNameIdx++;
         }
 
         // 解析自动评估列
-        if (evalColIndex >= 0 && row[evalColIndex]) {
-            try {
-                const evalStr = extractJsonFromText(String(row[evalColIndex]));
-                obj.autoEval = JSON.parse(evalStr);
-            } catch (e) {
-                try {
-                    obj.autoEval = JSON.parse(pythonDictToJson(String(row[evalColIndex])));
-                } catch (e2) {
-                    console.warn(`任务 ${i + 1} 自动评估数据解析失败:`, e2.message);
-                }
-            }
+        if (evalCol >= 0 && row[evalCol]) {
+            const parsed = quickParseJson(String(row[evalCol]));
+            if (parsed) obj.autoEval = parsed;
+            else console.warn(`任务 ${i + 1} 自动评估数据解析失败`);
         }
-        
-        // 兼容旧格式：model_output 指向第一组数据
+
+        // 兼容旧格式
         obj.model_output = obj.model_outputs[0] || {};
-        
-        // 初始化每组数据的评分
+
+        // 初始化评分
         obj.reviews = obj.model_outputs.map(() => null);
         obj.profileReviews = obj.model_outputs.map(() => null);
         obj.audiovisualReviews = obj.model_outputs.map(() => null);
-        
-        console.log(`任务 ${i + 1}: URL=${obj.video_url}, 数据组数=${obj.model_outputs.length}`);
-        
+
+        console.log(`任务 ${i + 1}: URL=${obj.video_url.substring(0, 80)}..., 数据组数=${obj.model_outputs.length}`);
+
         return obj;
-    }).filter(task => task.video_url); // 过滤掉没有URL的行
+    }).filter(task => task.video_url);
 }
 
 // 将原始片段数组转换为标准格式
@@ -2741,9 +2329,11 @@ function normalizeModelOutput(data) {
         return output;
     }
     
-    // 情况2：有 segment_detail 字段
+    // 情况2：有 segment_detail 或 segment_output 字段
     if (data.segment_detail && Array.isArray(data.segment_detail)) {
         output.segments = convertSegmentArray(data.segment_detail);
+    } else if (data.segment_output && Array.isArray(data.segment_output)) {
+        output.segments = convertSegmentArray(data.segment_output);
     }
     
     // 情况3：已经是标准格式
@@ -2820,6 +2410,12 @@ function processImportData(data) {
         return task;
     });
 
+    // 统计 _parseError 输出数
+    let parseErrorCount = 0;
+    validTasks.forEach(task => {
+        task.model_outputs?.forEach(o => { if (o?._parseError) parseErrorCount++; });
+    });
+
     if (validTasks.length === 0) {
         alert('没有有效的任务数据');
         return;
@@ -2881,6 +2477,7 @@ function processImportData(data) {
     let msg = `成功导入到「${modeName}」`;
     if (newCount > 0) msg += `，新增 ${newCount} 个任务`;
     if (mergedCount > 0) msg += `，合并 ${mergedCount} 个已有任务的模型输出`;
+    if (parseErrorCount > 0) msg += `\n⚠️ ${parseErrorCount} 条模型输出 JSON 解析失败（已保留原始内容）`;
     alert(msg);
 }
 
@@ -3388,9 +2985,12 @@ function renderProfileContent() {
     }
     
     // 获取当前数据组的 profile 数据
-    const profileData = task.model_outputs?.[state.currentOutputGroup]?.profile || 
-                        task.model_output?.profile || 
-                        null;
+    const currentOutput = task.model_outputs?.[state.currentOutputGroup] || task.model_output;
+    if (currentOutput?._parseError) {
+        renderParseErrorFallback('profile-content');
+        return;
+    }
+    const profileData = currentOutput?.profile || null;
     
     if (!profileData) {
         container.innerHTML = '<div class="text-gray-400 text-center py-8">暂无全篇语义画像数据</div>';
@@ -3478,9 +3078,12 @@ function renderAudiovisualContent() {
         return;
     }
 
-    const avData = task.model_outputs?.[state.currentOutputGroup]?.audiovisual
-        || task.model_output?.audiovisual
-        || null;
+    const currentOutput = task.model_outputs?.[state.currentOutputGroup] || task.model_output;
+    if (currentOutput?._parseError) {
+        renderParseErrorFallback('audiovisual-content');
+        return;
+    }
+    const avData = currentOutput?.audiovisual || null;
 
     if (!avData) {
         container.innerHTML = '<div class="text-gray-400 text-center py-8">暂无基础音画质量数据</div>';
@@ -4091,12 +3694,13 @@ function exportSegmentResults() {
     // 分段语义详情导出逻辑
     const tasks = getTasks();
     const exportData = [];
-    
+
     tasks.forEach(task => {
         const groupCount = task.model_outputs?.length || 1;
-        
+
         if (groupCount > 1 && task.reviews) {
             task.reviews.forEach((review, groupIndex) => {
+                if (task.model_outputs?.[groupIndex]?._parseError) return; // 跳过解析失败条目
                 const ratings = review?.ratings || {};
                 const notes = review?.notes || {};
                 const modelName = task.model_names?.[groupIndex] || `模型${groupIndex + 1}`;
@@ -4163,6 +3767,7 @@ function exportProfileResults() {
         
         if (groupCount > 1 && task.profileReviews) {
             task.profileReviews.forEach((review, groupIndex) => {
+                if (task.model_outputs?.[groupIndex]?._parseError) return; // 跳过解析失败条目
                 const ratings = review?.ratings || {};
                 const notes = review?.notes || {};
                 const modelName = task.model_names?.[groupIndex] || `模型${groupIndex + 1}`;
@@ -4259,6 +3864,7 @@ function exportAudiovisualResults() {
 
         if (groupCount > 1 && task.audiovisualReviews) {
             task.audiovisualReviews.forEach((review, groupIndex) => {
+                if (task.model_outputs?.[groupIndex]?._parseError) return; // 跳过解析失败条目
                 const modelName = task.model_names?.[groupIndex] || `模型${groupIndex + 1}`;
                 exportData.push(buildRow(task, review, modelName));
             });

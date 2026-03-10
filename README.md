@@ -17,12 +17,12 @@ python3 -m http.server 8080
 | 模式 | 说明 | 评分维度 | 分值范围 |
 |------|------|---------|---------|
 | **分段语义详情** | 审查模型对视频的分段理解 | 时间段切分、文本理解、视觉理解、关键帧提取 | 1-3 分 |
-| **全篇语义画像** | 审查模型对视频的整体画像 | 叙事类型、视觉类型、摘要等 7 个维度 | 1-3 分 |
+| **全篇语义画像** | 审查模型对视频的整体画像 | 叙事类型、视觉类型、摘要等 7 个维度 | 0-2 分 |
 | **基础音画质量** | 审查模型对音画质量的分析 | 总体质量、加工元素、构图等 16 个维度 | 0-2 分 |
 
 ## 导入格式
 
-### Excel（.xlsx）
+### Excel（.xlsx / .xls）
 
 支持自动检测列结构：
 
@@ -30,7 +30,7 @@ python3 -m http.server 8080
 |-----------|---------|-----------|-------|-------|-----|
 | 001 | https://video.mp4 | 视频标题 | {JSON} | {JSON} | ... |
 
-- **NID 列**：第一列表头含 `nid` / `data_id` / `编号` → 自动识别，用于排序和合并
+- **NID 列**：第一列表头含 `nid` / `data_id` / `编号` / `id` → 自动识别，用于排序和合并
 - **标题列**：紧跟 URL 后的列表头含"标题"关键词 → 自动识别为标题列
 - **评估列**：最后一列表头含"评估"关键词 → 自动识别为评估列，预填评分
 - **模型输出列**：其余列为模型输出 JSON，表头为模型名称
@@ -62,7 +62,7 @@ python3 -m http.server 8080
 
 - 含 `segment_detail` / `segment_output` 或数组 → 分段语义详情
 - 含 `global_profile` / `narrative_type` / `visual_type` → 全篇语义画像
-- 含 `vision_quality` / `audiovisual_integration` → 基础音画质量
+- 含 `vision_quality` / `audiovisual_integration` / `content_subject` → 基础音画质量
 
 ## 界面布局
 
@@ -87,12 +87,68 @@ python3 -m http.server 8080
 | Space | 播放 / 暂停 |
 | ← / → | 后退 / 前进 5 秒 |
 | Enter | 提交并下一条 |
+| Tab | 切换标签页（文本 → 视觉 → 关键帧） |
+| 1 / 2 / 3 | 快速评分（分段模式下） |
 
 ## 工作区
 
 - 支持创建多个工作区，数据完全隔离
 - 点击左侧工作区名称管理（新建、切换、删除、重命名）
 - 每个工作区独立保存任务、评分进度
+
+## JSON 修复
+
+导入时如果某个模型输出字段无法解析为合法 JSON，该条目会以 amber 警告卡片展示原始内容，侧边栏顶部同时显示「N 条解析失败 [全部修复]」横幅。
+
+### 工具内修复
+
+1. 点击右上角齿轮按钮 ⚙ 打开「LLM 修复设置」
+2. 填写 Base URL、API Key、模型名称，点「保存」（设置持久化到 localStorage，刷新不丢失）
+3. **全部修复**：点侧边栏横幅「全部修复」→ 进度弹窗 → 完成后显示成功/失败统计
+4. **单条修复**：进入某个解析失败的任务 → amber 卡片底部点「🔧 修复此条」→ 静默刷新为正常内容
+
+支持的 API 提供商：
+
+| 提供商 | Base URL 示例 |
+|--------|--------------|
+| DeepSeek（默认）| `https://api.deepseek.com` |
+| Anthropic | `https://api.anthropic.com` |
+| OpenAI / GPT | `https://api.openai.com` |
+| Gemini（OpenAI 兼容模式）| `https://generativelanguage.googleapis.com/v1beta/openai` |
+| MiniMax | `https://api.minimax.chat` |
+| 其他 OpenAI 兼容服务 | 任意 |
+
+模型默认值：`deepseek-chat`（可在设置中修改）
+
+### 命令行预处理（离线 / 批量）
+
+适合在导入前批量修复，或在无浏览器环境下使用。需安装依赖：`pip install openpyxl`（Excel 脚本）。
+
+**Excel：**
+
+```bash
+export LLM_API_KEY=sk-...
+export LLM_BASE_URL=https://api.deepseek.com
+python3 repair_excel.py tasks.xlsx tasks_repaired.xlsx
+```
+
+**JSONL：**
+
+```bash
+export LLM_API_KEY=sk-...
+python3 repair_jsonl.py data.jsonl data_repaired.jsonl --fields response
+```
+
+通用选项（两个脚本均支持）：
+
+| 参数 | 说明 | 默认值 |
+|------|------|--------|
+| `--api-key` | LLM API Key（或环境变量 `LLM_API_KEY`）| — |
+| `--base-url` | API Base URL（或环境变量 `LLM_BASE_URL`）| `https://api.deepseek.com` |
+| `--model` | 模型名称（或环境变量 `LLM_MODEL`）| `deepseek-chat` |
+| `--batch-size` | 每批处理条目数，并发发出 | `10` |
+| `--dry-run` | 仅扫描统计，不调用 API | — |
+| `--fields`（仅 JSONL）| 要修复的字段名 | `response` |
 
 ## 导出
 
