@@ -1674,17 +1674,22 @@ function convertJsonlToTask(obj, index) {
 
     // response 可能是 null、数组或单个对象
     if (!response) {
-        // 区分"原本就无 response 字段"和"字符串解析失败"
-        if (rawResponseStr) {
-            // 解析失败：设置 _parseError 供 LLM 修复
-            const errorOutput = { _parseError: true, raw: rawResponseStr.slice(0, 4000) };
+        // 收集所有可能包含 JSON 的原始内容（cot + response）
+        const rawParts = [];
+        if (obj.cot) rawParts.push(typeof obj.cot === 'string' ? obj.cot : JSON.stringify(obj.cot));
+        if (rawResponseStr) rawParts.push(rawResponseStr);
+        const fullRaw = rawParts.join('\n\n---\n\n');
+
+        if (fullRaw.trim()) {
+            // 有原始内容但解析失败 → _parseError，供 LLM 修复
+            const errorOutput = { _parseError: true, raw: fullRaw.slice(0, 8000) };
             task.model_output = errorOutput;
             task.model_outputs = [errorOutput];
             task.model_names = [obj.model_name || '默认'];
             task.reviews = [null];
             return task;
         }
-        // 没有分段数据，仍然可以导入（只有视频）
+        // 真正什么都没有 → 空任务（只有视频）
         task.model_output = { segments: [] };
         task.model_outputs = [{ segments: [] }];
         task.model_names = [obj.model_name || '默认'];
@@ -2016,8 +2021,12 @@ function quickParseJson(str) {
     if (!str || !str.trim()) return null;
     str = str.trim();
 
-    // 1. 剥离 <think>...</think>
-    str = str.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+    // 1. 剥离常见 CoT 标签（闭合的）
+    str = str.replace(/<(?:think|thinking|reasoning|thought|内心独白|分析)>[\s\S]*?<\/(?:think|thinking|reasoning|thought|内心独白|分析)>/gi, '').trim();
+    // 未闭合的 CoT 标签：从标签开始到第一个 JSON 对象/数组/代码块之前全部剥离
+    if (/^<(?:think|thinking|reasoning|thought)/i.test(str)) {
+        str = str.replace(/^<(?:think|thinking|reasoning|thought)[^>]*>[\s\S]*?(?=[\[{]|```)/i, '').trim();
+    }
 
     // 2. 剥离最外层 XML 包装标签（<json_output>...</json_output>、<json>...</json> 等）
     str = str.replace(/^<([a-z_]+)>\s*([\s\S]*?)\s*<\/\1>$/i, '$2').trim();
@@ -2065,7 +2074,20 @@ function quickParseJson(str) {
         // 单引号 → 双引号：逐字符状态机转换，正确处理嵌套引号
         py = pythonDictToJson(py);
         return JSON.parse(py);
-    } catch (_) { return null; }
+    } catch (_) {}
+
+    // 8. 兜底：从混合文本中提取最后一个完整 JSON 对象/数组
+    //    适用于 CoT 推理文本后跟 JSON 的情况
+    const lastObjMatch = str.match(/(\{[\s\S]*\})\s*$/);
+    if (lastObjMatch) {
+        try { return JSON.parse(lastObjMatch[1]); } catch (_) {}
+    }
+    const lastArrMatch = str.match(/(\[[\s\S]*\])\s*$/);
+    if (lastArrMatch) {
+        try { return JSON.parse(lastArrMatch[1]); } catch (_) {}
+    }
+
+    return null;
 }
 
 // 从 cot 字段提取 JSON（简化版：只找代码块和 xml 标签内的 JSON，不做 Markdown 文本解析）
@@ -2088,7 +2110,7 @@ function parseJsonCell(cellValue, taskIndex, colIndex) {
 
     // 无法解析 → _parseError，交 LLM 修复
     console.warn(`任务 ${taskIndex + 1} 第${colIndex}列 JSON解析失败，需 LLM 修复`);
-    return { _parseError: true, raw: str.slice(0, 4000) };
+    return { _parseError: true, raw: str.slice(0, 8000) };
 }
 
 
@@ -2145,9 +2167,14 @@ function parseExcel(arrayBuffer) {
 
     // 定义各类型列的关键词
     const nidKeywords = ['nid', 'data_id', '编号', 'id'];
-    const urlKeywords = ['url', '链接', 'video_url', '视频链接', '视频地址', '视频url', 'video'];
-    const titleKeywords = ['标题', 'title', '名称', 'name', '视频标题'];
+    const urlKeywords = ['url', '链接', 'video', 'videos'];
+    const titleKeywords = ['标题', 'title'];
     const evalKeywords = ['评估', '自动评估', 'eval', 'evaluation', '评测'];
+    const scoreKeywords = ['_score', '评分', '得分'];
+    const noteKeywords  = ['_问题', '备注', '问题描述'];
+    const skipKeywords  = ['序号', 'no', 'index', 'tools', 'user_content', 'asr',
+                           'think', 'video_duration', 'duration', 'images', 'image',
+                           'assistant_content_raw', '标注人员', '标注者', 'annotator'];
 
     // 遍历所有列，根据标题匹配类型
     let nidCol = -1;
@@ -2155,6 +2182,8 @@ function parseExcel(arrayBuffer) {
     let titleCol = -1;
     let evalCol = -1;
     const modelCols = []; // 模型输出列
+    const scoreCols = []; // 评分列
+    const noteCols  = []; // 备注列
 
     for (let col = 0; col < colCount; col++) {
         const header = headerRow[col]?.toString().trim().toLowerCase() || '';
@@ -2169,6 +2198,13 @@ function parseExcel(arrayBuffer) {
             continue;
         }
 
+        // 检测标题列（先于URL列，避免 video_title 被 url 关键词抢走）
+        if (titleCol === -1 && titleKeywords.some(kw => header.includes(kw))) {
+            titleCol = col;
+            console.log(`标题列检测: 第${col + 1}列 ("${headerRow[col]}")`);
+            continue;
+        }
+
         // 检测视频链接列
         if (urlCol === -1 && urlKeywords.some(kw => header.includes(kw))) {
             urlCol = col;
@@ -2176,17 +2212,32 @@ function parseExcel(arrayBuffer) {
             continue;
         }
 
-        // 检测标题列
-        if (titleCol === -1 && titleKeywords.some(kw => header.includes(kw))) {
-            titleCol = col;
-            console.log(`标题列检测: 第${col + 1}列 ("${headerRow[col]}")`);
-            continue;
-        }
-
         // 检测评估列
         if (evalCol === -1 && evalKeywords.some(kw => header.includes(kw))) {
             evalCol = col;
             console.log(`自动评估列检测: 第${col + 1}列 ("${headerRow[col]}")`);
+            continue;
+        }
+
+        // 检测评分列（*_score / *评分 / *得分）
+        if (scoreKeywords.some(kw => header.includes(kw))) {
+            const key = header.replace(/_score$/, '').replace(/评分$/, '').replace(/得分$/, '');
+            scoreCols.push({ col, key });
+            console.log(`评分列检测: 第${col + 1}列 ("${headerRow[col]}") → key: ${key}`);
+            continue;
+        }
+
+        // 检测备注列（*_问题 / *备注）
+        if (noteKeywords.some(kw => header.includes(kw))) {
+            const key = header.replace(/_问题$/, '').replace(/备注$/, '').replace(/问题描述$/, '');
+            noteCols.push({ col, key });
+            console.log(`备注列检测: 第${col + 1}列 ("${headerRow[col]}") → key: ${key}`);
+            continue;
+        }
+
+        // 跳过无关列
+        if (skipKeywords.some(kw => header === kw || header.includes(kw))) {
+            console.log(`跳过列: 第${col + 1}列 ("${headerRow[col]}")`);
             continue;
         }
 
@@ -2207,19 +2258,33 @@ function parseExcel(arrayBuffer) {
         }
     }
 
-    // 确定模型列（排除已识别的特殊列）
+    // 数据从第二行开始
+    const dataRows = rows.slice(1);
+
+    // 确定模型列（排除已识别的特殊列、评分列、备注列）
+    const specialCols = new Set([nidCol, urlCol, titleCol, evalCol,
+        ...scoreCols.map(s => s.col), ...noteCols.map(n => n.col)]);
     const finalModelCols = [];
     for (let col = 0; col < colCount; col++) {
-        if (col === nidCol || col === urlCol || col === titleCol || col === evalCol) continue;
+        if (specialCols.has(col)) continue;
         const header = headerRow[col]?.toString().trim() || '';
-        if (header) {
+        if (!header) continue;
+        // 检查第一行数据是否像 JSON 内容
+        const firstVal = (dataRows[0]?.[col] || '').toString().trim();
+        const looksLikeJson = /^[\[{"`']/.test(firstVal) || firstVal.startsWith('```');
+        if (looksLikeJson) {
             finalModelCols.push({ col, name: header });
         }
     }
+    // 如果智能检测没找到模型列，回退到所有未识别列
+    if (finalModelCols.length === 0) {
+        for (let col = 0; col < colCount; col++) {
+            if (specialCols.has(col)) continue;
+            const header = headerRow[col]?.toString().trim() || '';
+            if (header) finalModelCols.push({ col, name: header });
+        }
+    }
     console.log('模型列:', finalModelCols.map(m => `${m.name}(第${m.col + 1}列)`));
-
-    // 数据从第二行开始
-    const dataRows = rows.slice(1);
     const startRowIndex = 2; // Excel行号从1开始，数据从第2行开始
 
     return dataRows.map((row, i) => {
@@ -2287,6 +2352,23 @@ function parseExcel(arrayBuffer) {
         obj.reviews = obj.model_outputs.map(() => null);
         obj.profileReviews = obj.model_outputs.map(() => null);
         obj.audiovisualReviews = obj.model_outputs.map(() => null);
+
+        // 提取已有评分和备注（从 *_score / *_问题 列）
+        if (scoreCols.length > 0 || noteCols.length > 0) {
+            const importedScores = {};
+            const importedNotes = {};
+            scoreCols.forEach(({ col: c, key }) => {
+                const val = parseInt(row[c]);
+                if (!isNaN(val)) importedScores[key] = val;
+            });
+            noteCols.forEach(({ col: c, key }) => {
+                const val = row[c]?.toString().trim();
+                if (val) importedNotes[key] = val;
+            });
+            if (Object.keys(importedScores).length > 0 || Object.keys(importedNotes).length > 0) {
+                obj.importedReview = { scores: importedScores, notes: importedNotes };
+            }
+        }
 
         console.log(`任务 ${i + 1}: URL=${obj.video_url.substring(0, 80)}..., 数据组数=${obj.model_outputs.length}`);
 
@@ -2406,6 +2488,35 @@ function processImportData(data) {
             task.reviews = [null];
             task.profileReviews = [null];
             task.audiovisualReviews = [null];
+        }
+
+        // 如果 Excel 中有已有评分/备注，预填到 profileReviews
+        if (task.importedReview) {
+            const { scores, notes } = task.importedReview;
+            task.profileReviews = (task.model_outputs || [{}]).map(() => ({
+                mode: 'profile',
+                ratings: {
+                    narrative_type: scores.narrative_type ?? -1,
+                    visual_type: scores.visual_type ?? -1,
+                    summary: scores.summary ?? -1,
+                    intent_type: scores.intent_type ?? -1,
+                    topic_consistency: scores.topic_consistency ?? -1,
+                    core_claim: scores.core_claim ?? -1,
+                    emotion_type: scores.emotion_type ?? -1
+                },
+                notes: {
+                    narrative_type: notes.narrative_type || '',
+                    visual_type: notes.visual_type || '',
+                    summary: notes.summary || '',
+                    intent_type: notes.intent_type || '',
+                    topic_consistency: notes.topic_consistency || '',
+                    core_claim: notes.core_claim || '',
+                    emotion_type: notes.emotion_type || ''
+                },
+                completed: Object.values(scores).some(s => s >= 0),
+                timestamp: new Date().toISOString()
+            }));
+            delete task.importedReview; // 用完清除
         }
         return task;
     });
