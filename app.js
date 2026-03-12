@@ -407,6 +407,35 @@ function initEventListeners() {
 
     // 键盘快捷键
     document.addEventListener('keydown', handleKeyboard);
+
+    // 进度条悬停时间提示
+    const timeline = document.getElementById('timeline');
+    if (timeline) {
+        const tooltip = document.createElement('div');
+        tooltip.className = 'timeline-tooltip';
+        tooltip.style.display = 'none';
+        timeline.style.position = 'relative';
+        timeline.appendChild(tooltip);
+
+        timeline.addEventListener('mousemove', (e) => {
+            const dur = elements.videoPlayer?.duration;
+            if (!dur) return;
+            const rect = timeline.getBoundingClientRect();
+            const percent = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+            const time = percent * dur;
+            tooltip.textContent = formatTime(time);
+            tooltip.style.display = 'block';
+            // 居中在鼠标位置上方，不超出进度条边界
+            const tipW = tooltip.offsetWidth;
+            let left = e.clientX - rect.left - tipW / 2;
+            left = Math.max(0, Math.min(left, rect.width - tipW));
+            tooltip.style.left = left + 'px';
+        });
+
+        timeline.addEventListener('mouseleave', () => {
+            tooltip.style.display = 'none';
+        });
+    }
 }
 
 // ============================================
@@ -422,6 +451,58 @@ function togglePlay() {
 
 function seekRelative(seconds) {
     elements.videoPlayer.currentTime += seconds;
+}
+
+// 将文本中的时间描述转为可点击跳转的链接
+function linkifyTime(text) {
+    if (!text) return '';
+    // 按优先级排列：复合格式优先于简单格式
+    const patterns = [
+        // X分Y秒 / X分钟Y秒
+        { re: /(\d+)\s*分钟?\s*(\d+)\s*秒/g, calc: (m) => parseInt(m[1]) * 60 + parseInt(m[2]) },
+        // XmYs
+        { re: /(\d+)\s*m\s*(\d+)\s*s/gi, calc: (m) => parseInt(m[1]) * 60 + parseInt(m[2]) },
+        // MM:SS
+        { re: /(\d{1,2}):(\d{2})(?=\s|$|[，。,.])/g, calc: (m) => parseInt(m[1]) * 60 + parseInt(m[2]) },
+        // X-Ys（取起始时间）
+        { re: /(\d+)-(\d+)\s*s/gi, calc: (m) => parseInt(m[1]) },
+        // X分 / X分钟
+        { re: /(\d+)\s*分钟?(?!\s*\d)/g, calc: (m) => parseInt(m[1]) * 60 },
+        // Xm（不后跟数字/s，避免与 XmYs 冲突）
+        { re: /(\d+)\s*m(?!\s*\d)(?!s)/gi, calc: (m) => parseInt(m[1]) * 60 },
+        // Xs
+        { re: /(\d+)\s*s/gi, calc: (m) => parseInt(m[1]) },
+        // X秒
+        { re: /(\d+)\s*秒/g, calc: (m) => parseInt(m[1]) },
+    ];
+
+    // 收集所有匹配及位置，避免重叠
+    const matches = [];
+    for (const { re, calc } of patterns) {
+        let m;
+        while ((m = re.exec(text)) !== null) {
+            const start = m.index;
+            const end = start + m[0].length;
+            // 检查是否与已有匹配重叠
+            if (!matches.some(prev => start < prev.end && end > prev.start)) {
+                matches.push({ start, end, original: m[0], seconds: calc(m) });
+            }
+        }
+    }
+
+    if (matches.length === 0) return text;
+
+    // 按位置排序后拼接
+    matches.sort((a, b) => a.start - b.start);
+    let result = '';
+    let lastIdx = 0;
+    for (const m of matches) {
+        result += text.slice(lastIdx, m.start);
+        result += `<span class="time-link" onclick="event.stopPropagation(); seekToTime(${m.seconds})">${m.original}</span>`;
+        lastIdx = m.end;
+    }
+    result += text.slice(lastIdx);
+    return result;
 }
 
 function seekToTime(seconds) {
@@ -877,7 +958,7 @@ function renderTextUnderstanding(segments) {
                     ${formatTime(seg.start)} → ${formatTime(seg.end)}
                 </span>
             </div>
-            <p class="text-[15px] text-gray-700 leading-relaxed">${seg.description || seg.text || '无文本'}</p>
+            <p class="text-[15px] text-gray-700 leading-relaxed">${linkifyTime(seg.description || seg.text || '') || '无文本'}</p>
         </div>
     `).join('');
 }
@@ -899,7 +980,7 @@ function renderVisualUnderstanding(segments) {
                     ${formatTime(seg.start)} → ${formatTime(seg.end)}
                 </span>
             </div>
-            <p class="text-[15px] text-gray-700 leading-relaxed">${seg.visual || '无视觉描述'}</p>
+            <p class="text-[15px] text-gray-700 leading-relaxed">${linkifyTime(seg.visual || '') || '无视觉描述'}</p>
         </div>
     `).join('');
 }
@@ -1138,18 +1219,18 @@ function selectTask(index) {
 function renderOutputGroupSwitcher(task) {
     const switcher = document.getElementById('output-group-switcher');
     const buttonsContainer = document.getElementById('output-group-buttons');
-    
+
     const groupCount = task.model_outputs?.length || 0;
-    
-    if (groupCount === 0) {
-        // 没有数据，隐藏切换器
+
+    if (groupCount <= 1) {
+        // 单模型或无数据，隐藏切换器
         switcher.classList.add('hidden');
         return;
     }
-    
-    // 显示切换器
+
+    // 多模型：显示切换器
     switcher.classList.remove('hidden');
-    
+
     // 渲染按钮 - 使用模型名称
     buttonsContainer.innerHTML = task.model_outputs.map((output, i) => {
         const reviewsArr = state.reviewMode === 'segment' ? task.reviews
@@ -1170,7 +1251,127 @@ function renderOutputGroupSwitcher(task) {
                 ${modelName}
             </button>
         `;
-    }).join('');
+    }).join('') + `
+        <button onclick="openModelManager()" class="px-2 py-1 text-sm text-gray-400 hover:text-gray-600" title="管理模型">
+            <span class="mdi mdi-pencil-outline"></span>
+        </button>`;
+}
+
+// 模型管理面板
+function openModelManager() {
+    const task = getCurrentTask();
+    if (!task || !task.model_outputs || task.model_outputs.length <= 1) return;
+
+    // 记录原始顺序，用于检测是否有排序变化
+    const origOrder = task.model_names.map((_, i) => i);
+
+    const renderList = (names, order) => names.map((name, i) => `
+        <div class="flex items-center gap-2" data-order="${order[i]}">
+            <span class="text-xs text-gray-300 w-4 text-center">${i + 1}</span>
+            <input type="text" value="${escapeHTML(name)}" data-idx="${i}"
+                   class="model-name-input flex-1 px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-300" />
+            <button onclick="moveModelInManager(${i},-1)" class="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100 ${i === 0 ? 'invisible' : ''}" title="上移">
+                <span class="mdi mdi-arrow-up text-sm"></span>
+            </button>
+            <button onclick="moveModelInManager(${i},1)" class="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100 ${i === names.length - 1 ? 'invisible' : ''}" title="下移">
+                <span class="mdi mdi-arrow-down text-sm"></span>
+            </button>
+        </div>
+    `).join('');
+
+    const html = `
+    <div id="model-manager-overlay" class="fixed inset-0 z-50 bg-black/30 flex items-center justify-center" onclick="if(event.target===this)closeModelManager()">
+        <div class="bg-white rounded-2xl shadow-xl w-[380px] p-5">
+            <div class="flex justify-between items-center mb-4">
+                <h3 class="text-sm font-bold text-gray-800">管理模型</h3>
+                <button onclick="closeModelManager()" class="w-6 h-6 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-500">
+                    <span class="mdi mdi-close text-xs"></span>
+                </button>
+            </div>
+            <div id="model-manager-list" class="space-y-2">
+                ${renderList(task.model_names, origOrder)}
+            </div>
+            <div class="flex justify-end gap-2 mt-4">
+                <button onclick="closeModelManager()" class="px-3 py-1.5 text-xs text-gray-500 hover:text-gray-700">取消</button>
+                <button onclick="saveModelManager()" class="px-4 py-1.5 text-xs bg-blue-500 text-white rounded-lg hover:bg-blue-600">确认</button>
+            </div>
+        </div>
+    </div>`;
+    document.body.insertAdjacentHTML('beforeend', html);
+
+    // 保存渲染函数供 moveModelInManager 使用
+    window._modelManagerRenderList = renderList;
+    window._modelManagerOrder = [...origOrder];
+}
+
+function closeModelManager() {
+    document.getElementById('model-manager-overlay')?.remove();
+    delete window._modelManagerRenderList;
+    delete window._modelManagerOrder;
+}
+
+function moveModelInManager(idx, dir) {
+    const target = idx + dir;
+    const list = document.getElementById('model-manager-list');
+    const inputs = list.querySelectorAll('.model-name-input');
+    if (target < 0 || target >= inputs.length) return;
+
+    // 读取当前所有名称和顺序
+    const names = Array.from(inputs).map(inp => inp.value);
+    const order = window._modelManagerOrder;
+
+    // 交换
+    [names[idx], names[target]] = [names[target], names[idx]];
+    [order[idx], order[target]] = [order[target], order[idx]];
+
+    // 重新渲染列表
+    list.innerHTML = window._modelManagerRenderList(names, order);
+}
+
+function saveModelManager() {
+    const task = getCurrentTask();
+    if (!task) return;
+
+    const list = document.getElementById('model-manager-list');
+    const inputs = list.querySelectorAll('.model-name-input');
+    const order = window._modelManagerOrder;
+    const newNames = Array.from(inputs).map(inp => inp.value.trim());
+
+    // 检查是否有排序变化
+    const hasReorder = order.some((origIdx, i) => origIdx !== i);
+
+    if (hasReorder) {
+        // 按新顺序重排所有并行数组
+        const reorder = (arr) => {
+            if (!arr || !Array.isArray(arr)) return arr;
+            return order.map(origIdx => arr[origIdx]);
+        };
+        task.model_outputs = reorder(task.model_outputs);
+        task.reviews = reorder(task.reviews);
+        task.profileReviews = reorder(task.profileReviews);
+        task.audiovisualReviews = reorder(task.audiovisualReviews);
+        task.model_output = task.model_outputs[0] || {};
+        state.currentOutputGroup = 0;
+    }
+
+    // 更新名称（用重排后的新名称）
+    task.model_names = newNames;
+
+    saveToLocalStorage();
+    closeModelManager();
+
+    // 刷新 UI
+    renderOutputGroupSwitcher(task);
+    updateModelOutput();
+    if (state.reviewMode === 'segment') {
+        switchTab(state.currentTab);
+    } else if (state.reviewMode === 'audiovisual') {
+        renderAudiovisualContent();
+    } else {
+        renderProfileContent();
+    }
+    renderTimeline();
+    updateUI();
 }
 
 // 切换数据组

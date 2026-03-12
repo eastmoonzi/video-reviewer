@@ -8,6 +8,21 @@
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css" rel="stylesheet">
     <style>
+        /* Time-link: clickable time descriptions */
+        .time-link {
+            color: #0071E3; text-decoration: underline;
+            text-decoration-color: #0071E3/40; text-underline-offset: 2px;
+            cursor: pointer; border-radius: 2px; transition: color 0.15s, background 0.15s;
+        }
+        .time-link:hover { color: #0051A8; background: rgba(0,113,227,0.08); }
+        /* Timeline hover tooltip */
+        .timeline-tooltip {
+            position: absolute; bottom: calc(100% + 6px); left: 0;
+            padding: 2px 7px; border-radius: 4px;
+            background: rgba(0,0,0,.82); color: #fff;
+            font-size: 11px; font-family: ui-monospace, monospace;
+            white-space: nowrap; pointer-events: none; z-index: 50;
+        }
         /* Instant tooltip */
         .instant-tip { position: relative; }
         .instant-tip:hover::after {
