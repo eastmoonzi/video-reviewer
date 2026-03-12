@@ -294,9 +294,9 @@ function switchWorkspace(wsId) {
     // 加载新工作区数据
     loadFromLocalStorage();
 
-    // 刷新 UI
+    // 刷新 UI（保持当前审核模式不变）
     renderWorkspaceSwitcher();
-    restoreReviewMode();
+    switchReviewMode(state.reviewMode);
     updateUI();
 }
 
