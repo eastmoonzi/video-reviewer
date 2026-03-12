@@ -2165,16 +2165,19 @@ function parseExcel(arrayBuffer) {
     const headerRow = rows[0];
     const colCount = headerRow.length;
 
-    // 定义各类型列的关键词
+    // 定义各类型列的关键词（全部用精确匹配，避免子串误匹配）
     const nidKeywords = ['nid', 'data_id', '编号', 'id'];
-    const urlKeywords = ['url', '链接', 'video', 'videos'];
-    const titleKeywords = ['标题', 'title'];
+    const urlKeywords = ['url', 'video_url', '链接', '视频链接', '视频地址', 'video', 'videos'];
+    const titleKeywords = ['标题', 'title', 'video_title', '视频标题'];
     const evalKeywords = ['评估', '自动评估', 'eval', 'evaluation', '评测'];
-    const scoreKeywords = ['_score', '评分', '得分'];
-    const noteKeywords  = ['_问题', '备注', '问题描述'];
+    const scoreKeywords = ['_score', '评分', '得分'];  // 这三个仍用 includes（作为后缀）
+    const noteKeywords  = ['_问题', '备注', '问题描述'];  // 同上
     const skipKeywords  = ['序号', 'no', 'index', 'tools', 'user_content', 'asr',
                            'think', 'video_duration', 'duration', 'images', 'image',
                            'assistant_content_raw', '标注人员', '标注者', 'annotator'];
+
+    // 精确匹配辅助函数（nid/url/title/eval/skip 用精确匹配，score/note 用后缀匹配）
+    const exactMatch = (header, keywords) => keywords.some(kw => header === kw);
 
     // 遍历所有列，根据标题匹配类型
     let nidCol = -1;
@@ -2184,6 +2187,7 @@ function parseExcel(arrayBuffer) {
     const modelCols = []; // 模型输出列
     const scoreCols = []; // 评分列
     const noteCols  = []; // 备注列
+    const skipColIndices = []; // 被跳过的列索引
 
     for (let col = 0; col < colCount; col++) {
         const header = headerRow[col]?.toString().trim().toLowerCase() || '';
@@ -2191,52 +2195,53 @@ function parseExcel(arrayBuffer) {
         // 跳过空列
         if (!header) continue;
 
-        // 检测 nid 列
-        if (nidCol === -1 && nidKeywords.some(kw => header === kw || header.includes(kw))) {
+        // 检测 nid 列（精确匹配）
+        if (nidCol === -1 && exactMatch(header, nidKeywords)) {
             nidCol = col;
             console.log(`NID列检测: 第${col + 1}列 ("${headerRow[col]}")`);
             continue;
         }
 
-        // 检测标题列（先于URL列，避免 video_title 被 url 关键词抢走）
-        if (titleCol === -1 && titleKeywords.some(kw => header.includes(kw))) {
+        // 检测标题列（精确匹配，先于URL列）
+        if (titleCol === -1 && exactMatch(header, titleKeywords)) {
             titleCol = col;
             console.log(`标题列检测: 第${col + 1}列 ("${headerRow[col]}")`);
             continue;
         }
 
-        // 检测视频链接列
-        if (urlCol === -1 && urlKeywords.some(kw => header.includes(kw))) {
+        // 检测视频链接列（精确匹配）
+        if (urlCol === -1 && exactMatch(header, urlKeywords)) {
             urlCol = col;
             console.log(`视频链接列检测: 第${col + 1}列 ("${headerRow[col]}")`);
             continue;
         }
 
-        // 检测评估列
-        if (evalCol === -1 && evalKeywords.some(kw => header.includes(kw))) {
+        // 检测评估列（精确匹配）
+        if (evalCol === -1 && exactMatch(header, evalKeywords)) {
             evalCol = col;
             console.log(`自动评估列检测: 第${col + 1}列 ("${headerRow[col]}")`);
             continue;
         }
 
-        // 检测评分列（*_score / *评分 / *得分）
-        if (scoreKeywords.some(kw => header.includes(kw))) {
+        // 检测评分列（后缀匹配：*_score / *评分 / *得分）
+        if (scoreKeywords.some(kw => header.endsWith(kw))) {
             const key = header.replace(/_score$/, '').replace(/评分$/, '').replace(/得分$/, '');
             scoreCols.push({ col, key });
             console.log(`评分列检测: 第${col + 1}列 ("${headerRow[col]}") → key: ${key}`);
             continue;
         }
 
-        // 检测备注列（*_问题 / *备注）
-        if (noteKeywords.some(kw => header.includes(kw))) {
+        // 检测备注列（后缀匹配：*_问题 / *备注）
+        if (noteKeywords.some(kw => header.endsWith(kw))) {
             const key = header.replace(/_问题$/, '').replace(/备注$/, '').replace(/问题描述$/, '');
             noteCols.push({ col, key });
             console.log(`备注列检测: 第${col + 1}列 ("${headerRow[col]}") → key: ${key}`);
             continue;
         }
 
-        // 跳过无关列
-        if (skipKeywords.some(kw => header === kw || header.includes(kw))) {
+        // 跳过无关列（精确匹配）
+        if (exactMatch(header, skipKeywords)) {
+            skipColIndices.push(col);
             console.log(`跳过列: 第${col + 1}列 ("${headerRow[col]}")`);
             continue;
         }
@@ -2263,7 +2268,7 @@ function parseExcel(arrayBuffer) {
 
     // 确定模型列（排除已识别的特殊列、评分列、备注列）
     const specialCols = new Set([nidCol, urlCol, titleCol, evalCol,
-        ...scoreCols.map(s => s.col), ...noteCols.map(n => n.col)]);
+        ...scoreCols.map(s => s.col), ...noteCols.map(n => n.col), ...skipColIndices]);
     const finalModelCols = [];
     for (let col = 0; col < colCount; col++) {
         if (specialCols.has(col)) continue;
@@ -2329,13 +2334,8 @@ function parseExcel(arrayBuffer) {
         for (const modelCol of finalModelCols) {
             const parsed = parseJsonCell(row[modelCol.col], i, modelCol.col + 1);
             if (!parsed) continue; // null = 空单元格，静默跳过
-            if (parsed._parseError ||
-                (parsed.segments && parsed.segments.length > 0) ||
-                parsed.profile ||
-                parsed.audiovisual) {
-                obj.model_outputs.push(parsed);
-                obj.model_names.push(modelCol.name);
-            }
+            obj.model_outputs.push(parsed);
+            obj.model_names.push(modelCol.name);
         }
 
         // 解析自动评估列
