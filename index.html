@@ -6,6 +6,7 @@
     <title>视频审查工作台</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css" rel="stylesheet">
     <style>
         /* Time-link: clickable time descriptions */
@@ -179,6 +180,12 @@
             color: #1D1D1F !important;
             font-weight: 600;
             border-bottom-color: #1D1D1F !important;
+        }
+        /* Model manager drag sorting */
+        .model-manager-row.sortable-chosen {
+            background: #f0f4ff;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
         }
     </style>
 </head>

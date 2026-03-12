@@ -462,10 +462,10 @@ function linkifyTime(text) {
         { re: /(\d+)\s*分钟?\s*(\d+)\s*秒/g, calc: (m) => parseInt(m[1]) * 60 + parseInt(m[2]) },
         // XmYs
         { re: /(\d+)\s*m\s*(\d+)\s*s/gi, calc: (m) => parseInt(m[1]) * 60 + parseInt(m[2]) },
-        // MM:SS
-        { re: /(\d{1,2}):(\d{2})(?=\s|$|[，。,.])/g, calc: (m) => parseInt(m[1]) * 60 + parseInt(m[2]) },
+        // MM:SS（后面可以跟空白、标点、→、HTML标签、行尾等）
+        { re: /(\d{1,2}):(\d{2})(?=\s|$|[，。,.;；、）\)→\-<])/g, calc: (m) => parseInt(m[1]) * 60 + parseInt(m[2]) },
         // X-Ys（取起始时间）
-        { re: /(\d+)-(\d+)\s*s/gi, calc: (m) => parseInt(m[1]) },
+        { re: /(\d+)-(\d+)\s*(?:s|秒)/gi, calc: (m) => parseInt(m[1]) },
         // X分 / X分钟
         { re: /(\d+)\s*分钟?(?!\s*\d)/g, calc: (m) => parseInt(m[1]) * 60 },
         // Xm（不后跟数字/s，避免与 XmYs 冲突）
@@ -539,6 +539,13 @@ function formatTime(seconds) {
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+}
+
+function formatTimeLink(seconds) {
+    const display = formatTime(seconds);
+    if (isNaN(seconds)) return display;
+    const s = Math.floor(seconds);
+    return `<span class="time-link" onclick="event.stopPropagation(); seekToTime(${s})">${display}</span>`;
 }
 
 // ============================================
@@ -958,7 +965,7 @@ function renderTextUnderstanding(segments) {
                     ${formatTime(seg.start)} → ${formatTime(seg.end)}
                 </span>
             </div>
-            <p class="text-[15px] text-gray-700 leading-relaxed">${linkifyTime(seg.description || seg.text || '') || '无文本'}</p>
+            <p class="text-[15px] text-gray-700 leading-relaxed">${(seg.description || seg.text || '') || '无文本'}</p>
         </div>
     `).join('');
 }
@@ -1266,16 +1273,11 @@ function openModelManager() {
     const origOrder = task.model_names.map((_, i) => i);
 
     const renderList = (names, order) => names.map((name, i) => `
-        <div class="flex items-center gap-2" data-order="${order[i]}">
-            <span class="text-xs text-gray-300 w-4 text-center">${i + 1}</span>
+        <div class="flex items-center gap-2 model-manager-row" data-order="${order[i]}" style="cursor: grab;">
+            <span class="mdi mdi-drag text-gray-300 text-lg drag-handle" style="cursor: grab;"></span>
+            <span class="text-xs text-gray-300 w-4 text-center model-row-number">${i + 1}</span>
             <input type="text" value="${escapeHTML(name)}" data-idx="${i}"
                    class="model-name-input flex-1 px-2 py-1.5 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-1 focus:ring-blue-300" />
-            <button onclick="moveModelInManager(${i},-1)" class="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100 ${i === 0 ? 'invisible' : ''}" title="上移">
-                <span class="mdi mdi-arrow-up text-sm"></span>
-            </button>
-            <button onclick="moveModelInManager(${i},1)" class="w-7 h-7 flex items-center justify-center text-gray-400 hover:text-gray-600 rounded hover:bg-gray-100 ${i === names.length - 1 ? 'invisible' : ''}" title="下移">
-                <span class="mdi mdi-arrow-down text-sm"></span>
-            </button>
         </div>
     `).join('');
 
@@ -1299,33 +1301,33 @@ function openModelManager() {
     </div>`;
     document.body.insertAdjacentHTML('beforeend', html);
 
-    // 保存渲染函数供 moveModelInManager 使用
-    window._modelManagerRenderList = renderList;
+    const listEl = document.getElementById('model-manager-list');
+    window._modelManagerSortable = new Sortable(listEl, {
+        animation: 150,
+        handle: '.drag-handle',
+        ghostClass: 'opacity-30',
+        chosenClass: 'sortable-chosen',
+        onEnd() {
+            const rows = listEl.querySelectorAll('.model-manager-row');
+            const newOrder = [];
+            rows.forEach((row, i) => {
+                newOrder.push(parseInt(row.dataset.order));
+                row.querySelector('.model-row-number').textContent = i + 1;
+            });
+            window._modelManagerOrder = newOrder;
+        }
+    });
     window._modelManagerOrder = [...origOrder];
 }
 
 function closeModelManager() {
+    if (window._modelManagerSortable) {
+        window._modelManagerSortable.destroy();
+        delete window._modelManagerSortable;
+    }
     document.getElementById('model-manager-overlay')?.remove();
     delete window._modelManagerRenderList;
     delete window._modelManagerOrder;
-}
-
-function moveModelInManager(idx, dir) {
-    const target = idx + dir;
-    const list = document.getElementById('model-manager-list');
-    const inputs = list.querySelectorAll('.model-name-input');
-    if (target < 0 || target >= inputs.length) return;
-
-    // 读取当前所有名称和顺序
-    const names = Array.from(inputs).map(inp => inp.value);
-    const order = window._modelManagerOrder;
-
-    // 交换
-    [names[idx], names[target]] = [names[target], names[idx]];
-    [order[idx], order[target]] = [order[target], order[idx]];
-
-    // 重新渲染列表
-    list.innerHTML = window._modelManagerRenderList(names, order);
 }
 
 function saveModelManager() {
@@ -2475,9 +2477,10 @@ function parseExcel(arrayBuffer) {
         if (specialCols.has(col)) continue;
         const header = headerRow[col]?.toString().trim() || '';
         if (!header) continue;
-        // 检查第一行数据是否像 JSON 内容
+        // 检查第一行数据是否像 JSON 内容（含 CoT 包裹）
         const firstVal = (dataRows[0]?.[col] || '').toString().trim();
-        const looksLikeJson = /^[\[{"`']/.test(firstVal) || firstVal.startsWith('```');
+        const looksLikeJson = /^[\[{"`']/.test(firstVal) || firstVal.startsWith('```')
+            || /^<(?:think|thinking|reasoning|thought)/i.test(firstVal);
         if (looksLikeJson) {
             finalModelCols.push({ col, name: header });
         }
@@ -3441,8 +3444,8 @@ function renderAudiovisualContent() {
     const vpe = avData.vision_quality?.visual_processing_elements;
     if (vpe && vpe.length > 0) {
         const items = vpe.map(el => {
-            const timeStr = Array.isArray(el.time) ? `${formatTime(el.time[0])}→${formatTime(el.time[1])}` : '';
-            return `<b>${escapeHTML(el.tag || '-')}</b>：${escapeHTML(el.desc || '')}` +
+            const timeStr = Array.isArray(el.time) ? `${formatTimeLink(el.time[0])}→${formatTimeLink(el.time[1])}` : '';
+            return `<b>${escapeHTML(el.tag || '-')}</b>：${linkifyTime(escapeHTML(el.desc || ''))}` +
                 (el.position ? ` <span class="text-gray-400">[${escapeHTML(el.position)}${el.area_ratio ? ', ' + escapeHTML(el.area_ratio) : ''}]</span>` : '') +
                 (timeStr ? ` <span class="text-gray-400 font-mono text-[11px]">${timeStr}</span>` : '');
         }).join('<br>');
@@ -3457,9 +3460,9 @@ function renderAudiovisualContent() {
     const comp = avData.vision_quality?.composition;
     if (comp && comp.length > 0) {
         const items = comp.map(el => {
-            const timeStr = Array.isArray(el.time) ? `${formatTime(el.time[0])}→${formatTime(el.time[1])}` : '';
+            const timeStr = Array.isArray(el.time) ? `${formatTimeLink(el.time[0])}→${formatTimeLink(el.time[1])}` : '';
             return `<b>${escapeHTML(el.tag || el.desc || '-')}</b>` +
-                (el.desc && el.tag ? `：${escapeHTML(el.desc)}` : '') +
+                (el.desc && el.tag ? `：${linkifyTime(escapeHTML(el.desc))}` : '') +
                 (timeStr ? ` <span class="text-gray-400 font-mono text-[11px]">${timeStr}</span>` : '');
         }).join('<br>');
         sections.push(renderAVSection('构图', 'mdi-grid', null, items, true,
@@ -3592,7 +3595,7 @@ function renderAVSection(title, icon, tag, content, isHtml, evalInfo) {
                 </div>
                 ${tag ? `<span class="px-2.5 py-1 bg-black text-white text-[11px] font-medium rounded-full">${escapeHTML(tag)}</span>` : ''}
             </div>
-            ${content ? `<div class="text-[15px] text-gray-700 leading-relaxed">${isHtml ? content : escapeHTML(content)}</div>` : ''}
+            ${content ? `<div class="text-[15px] text-gray-700 leading-relaxed">${isHtml ? linkifyTime(content) : linkifyTime(escapeHTML(content))}</div>` : ''}
             ${evalHtml}
         </div>
     `;
@@ -3601,10 +3604,10 @@ function renderAVSection(title, icon, tag, content, isHtml, evalInfo) {
 function renderAVListItem(el) {
     const parts = [];
     if (el.tag) parts.push(`<b>${escapeHTML(el.tag)}</b>`);
-    if (el.desc) parts.push(escapeHTML(el.desc));
+    if (el.desc) parts.push(linkifyTime(escapeHTML(el.desc)));
     if (el.position) parts.push(`<span class="text-gray-400">[${escapeHTML(el.position)}]</span>`);
     if (Array.isArray(el.time)) {
-        parts.push(`<span class="text-gray-400 font-mono text-[11px]">${formatTime(el.time[0])}→${formatTime(el.time[1])}</span>`);
+        parts.push(`<span class="text-gray-400 font-mono text-[11px]">${formatTimeLink(el.time[0])}→${formatTimeLink(el.time[1])}</span>`);
     }
     return parts.join(' ') || '-';
 }
