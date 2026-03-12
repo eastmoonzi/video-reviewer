@@ -1838,7 +1838,7 @@ function convertJsonlToTask(obj, index) {
     const task = {
         id: title || rawId,
         rawId: rawId,
-        video_url: (obj.videos && obj.videos[0]) || obj.video_url || ''
+        video_url: ((obj.videos && obj.videos[0]) || obj.video_url || '').replace(/^http:\/\//i, 'https://')
     };
 
     // 处理 response 字段
@@ -2529,7 +2529,7 @@ function parseExcel(arrayBuffer) {
             }
         }
 
-        obj.video_url = videoUrl;
+        obj.video_url = videoUrl.replace(/^http:\/\//i, 'https://');
 
         // 解析模型输出
         obj.model_outputs = [];
