@@ -571,8 +571,8 @@ function parseTimeInput(text) {
 }
 
 // 手动跳转到输入的时间
-function jumpToInputTime() {
-    const input = document.getElementById('time-jump-input');
+function jumpToInputTime(inputId) {
+    const input = document.getElementById(inputId || 'time-jump-input');
     if (!input) return;
     const seconds = parseTimeInput(input.value);
     if (isNaN(seconds)) {
@@ -4495,6 +4495,13 @@ function enterComparisonMode() {
         video.requestPictureInPicture().catch(() => {});
     }
 
+    // PiP 关闭时退出对比模式
+    const onLeavePiP = () => {
+        video.removeEventListener('leavepictureinpicture', onLeavePiP);
+        if (state.comparisonMode) exitComparisonMode();
+    };
+    video.addEventListener('leavepictureinpicture', onLeavePiP);
+
     // 隐藏视频列
     const videoCol = document.querySelector('#review-workspace > .flex-1.flex.flex-col');
     if (videoCol) {
@@ -4545,16 +4552,26 @@ function buildComparisonView(container, task) {
                 <button onclick="switchComparisonTab('visual')" class="comp-tab-btn text-sm font-medium text-gray-400 hover:text-gray-600 border-b-2 border-transparent pb-1" data-tab="visual">视觉</button>
                 <button onclick="switchComparisonTab('keyframe')" class="comp-tab-btn text-sm font-medium text-gray-400 hover:text-gray-600 border-b-2 border-transparent pb-1" data-tab="keyframe">关键帧</button>
             </div>
-            <span class="flex-1"></span>
-            <button onclick="exitComparisonMode()" class="text-xs text-gray-400 hover:text-gray-700 px-2 py-1 rounded hover:bg-gray-100 transition-colors">
+            <div class="ml-auto flex items-center gap-1.5">
+                <input type="text" id="comp-time-jump-input" placeholder="跳转 1:30" class="w-[80px] text-xs py-1 px-2 rounded-lg bg-gray-100 border-none outline-none focus:bg-gray-200 font-mono transition-colors" onkeydown="if(event.key==='Enter'){jumpToInputTime('comp-time-jump-input'); event.preventDefault();}">
+                <button onclick="jumpToInputTime('comp-time-jump-input')" class="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-black hover:bg-gray-100 transition-colors" title="跳转">
+                    <span class="mdi mdi-arrow-right-bold text-sm"></span>
+                </button>
+            </div>
+            <button onclick="exitComparisonMode()" class="text-xs text-gray-400 hover:text-gray-700 px-2 py-1 rounded hover:bg-gray-100 transition-colors ml-2">
                 <span class="mdi mdi-close mr-1"></span>退出对比
             </button>
         `;
     } else {
         toolbar.innerHTML = `
             <span class="text-sm font-bold text-gray-700">${mode === 'profile' ? '全篇画像' : '音画质量'} 对比</span>
-            <span class="flex-1"></span>
-            <button onclick="exitComparisonMode()" class="text-xs text-gray-400 hover:text-gray-700 px-2 py-1 rounded hover:bg-gray-100 transition-colors">
+            <div class="ml-auto flex items-center gap-1.5">
+                <input type="text" id="comp-time-jump-input" placeholder="跳转 1:30" class="w-[80px] text-xs py-1 px-2 rounded-lg bg-gray-100 border-none outline-none focus:bg-gray-200 font-mono transition-colors" onkeydown="if(event.key==='Enter'){jumpToInputTime('comp-time-jump-input'); event.preventDefault();}">
+                <button onclick="jumpToInputTime('comp-time-jump-input')" class="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-black hover:bg-gray-100 transition-colors" title="跳转">
+                    <span class="mdi mdi-arrow-right-bold text-sm"></span>
+                </button>
+            </div>
+            <button onclick="exitComparisonMode()" class="text-xs text-gray-400 hover:text-gray-700 px-2 py-1 rounded hover:bg-gray-100 transition-colors ml-2">
                 <span class="mdi mdi-close mr-1"></span>退出对比
             </button>
         `;
