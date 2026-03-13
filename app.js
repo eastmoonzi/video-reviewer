@@ -90,7 +90,10 @@ const state = {
         vulgar_intent: '',
         promotional_intent: '',
         immoral_values: ''
-    }
+    },
+    // 对比模式
+    comparisonMode: false,
+    comparisonGroups: [0, 1]
 };
 
 // 获取当前模式的任务列表
@@ -464,8 +467,9 @@ function linkifyTime(text) {
         { re: /(\d+)\s*m\s*(\d+)\s*s/gi, calc: (m) => parseInt(m[1]) * 60 + parseInt(m[2]) },
         // MM:SS（后面可以跟空白、标点、→、HTML标签、行尾等）
         { re: /(\d{1,2}):(\d{2})(?=\s|$|[，。,.;；、）\)→\-<])/g, calc: (m) => parseInt(m[1]) * 60 + parseInt(m[2]) },
-        // X-Ys / X至Ys / X 至 Y秒（取起始时间）
-        { re: /(\d+)\s*[-至]\s*(\d+)\s*(?:s|秒)/gi, calc: (m) => parseInt(m[1]) },
+        // X-Ys / X至Ys / X 至 Y秒（范围：起始+结束双跳转）
+        { re: /(\d+)\s*([-至])\s*(\d+)\s*(?:s|秒)/gi, isRange: true,
+          calc: (m) => parseInt(m[1]), calcEnd: (m) => parseInt(m[3]) },
         // X分 / X分钟
         { re: /(\d+)\s*分钟?(?!\s*\d)/g, calc: (m) => parseInt(m[1]) * 60 },
         // Xm（不后跟数字/s，避免与 XmYs 冲突）
@@ -478,14 +482,31 @@ function linkifyTime(text) {
 
     // 收集所有匹配及位置，避免重叠
     const matches = [];
-    for (const { re, calc } of patterns) {
+    for (const { re, calc, isRange, calcEnd } of patterns) {
         let m;
         while ((m = re.exec(text)) !== null) {
             const start = m.index;
             const end = start + m[0].length;
             // 检查是否与已有匹配重叠
             if (!matches.some(prev => start < prev.end && end > prev.start)) {
-                matches.push({ start, end, original: m[0], seconds: calc(m) });
+                if (isRange && calcEnd) {
+                    // 范围类型：生成包含两个 time-link 的 html
+                    const startSec = calc(m);
+                    const endSec = calcEnd(m);
+                    // 解析原始文本，拆分为 起始数字 + 分隔符 + 结束数字+单位
+                    const rangeRe = /^(\d+)(\s*[-至]\s*)(\d+\s*(?:s|秒))$/i;
+                    const parts = m[0].match(rangeRe);
+                    let html;
+                    if (parts) {
+                        html = `<span class="time-link" onclick="event.stopPropagation(); seekToTime(${startSec})">${parts[1]}</span>${parts[2]}<span class="time-link" onclick="event.stopPropagation(); seekToTime(${endSec})">${parts[3]}</span>`;
+                    } else {
+                        // fallback: 整体作为起始时间链接
+                        html = `<span class="time-link" onclick="event.stopPropagation(); seekToTime(${startSec})">${m[0]}</span>`;
+                    }
+                    matches.push({ start, end, original: m[0], seconds: startSec, html });
+                } else {
+                    matches.push({ start, end, original: m[0], seconds: calc(m) });
+                }
             }
         }
     }
@@ -498,7 +519,11 @@ function linkifyTime(text) {
     let lastIdx = 0;
     for (const m of matches) {
         result += text.slice(lastIdx, m.start);
-        result += `<span class="time-link" onclick="event.stopPropagation(); seekToTime(${m.seconds})">${m.original}</span>`;
+        if (m.html) {
+            result += m.html;
+        } else {
+            result += `<span class="time-link" onclick="event.stopPropagation(); seekToTime(${m.seconds})">${m.original}</span>`;
+        }
         lastIdx = m.end;
     }
     result += text.slice(lastIdx);
@@ -507,6 +532,60 @@ function linkifyTime(text) {
 
 function seekToTime(seconds) {
     elements.videoPlayer.currentTime = seconds;
+}
+
+// 解析用户输入的时间文本，返回秒数或 NaN
+function parseTimeInput(text) {
+    if (!text) return NaN;
+    text = text.trim();
+
+    // X分Y秒 / X分钟Y秒
+    let m = text.match(/^(\d+)\s*分钟?\s*(\d+)\s*秒?$/);
+    if (m) return parseInt(m[1]) * 60 + parseInt(m[2]);
+
+    // XmYs
+    m = text.match(/^(\d+)\s*m\s*(\d+)\s*s?$/i);
+    if (m) return parseInt(m[1]) * 60 + parseInt(m[2]);
+
+    // MM:SS
+    m = text.match(/^(\d{1,3}):(\d{2})$/);
+    if (m) return parseInt(m[1]) * 60 + parseInt(m[2]);
+
+    // X分 / X分钟
+    m = text.match(/^(\d+)\s*分钟?$/);
+    if (m) return parseInt(m[1]) * 60;
+
+    // Xm
+    m = text.match(/^(\d+)\s*m$/i);
+    if (m) return parseInt(m[1]) * 60;
+
+    // Xs / X秒
+    m = text.match(/^(\d+)\s*(?:s|秒)$/i);
+    if (m) return parseInt(m[1]);
+
+    // 纯数字（视为秒）
+    m = text.match(/^(\d+(?:\.\d+)?)$/);
+    if (m) return parseFloat(m[1]);
+
+    return NaN;
+}
+
+// 手动跳转到输入的时间
+function jumpToInputTime() {
+    const input = document.getElementById('time-jump-input');
+    if (!input) return;
+    const seconds = parseTimeInput(input.value);
+    if (isNaN(seconds)) {
+        input.style.outline = '2px solid #ef4444';
+        setTimeout(() => { input.style.outline = ''; }, 800);
+        return;
+    }
+    const duration = elements.videoPlayer.duration || Infinity;
+    const clamped = Math.max(0, Math.min(seconds, duration));
+    seekToTime(clamped);
+    input.value = formatTime(clamped);
+    input.style.outline = '2px solid #22c55e';
+    setTimeout(() => { input.style.outline = ''; }, 600);
 }
 
 function seekToPosition(event) {
@@ -1148,9 +1227,9 @@ function resetRatings() {
     // 清空所有备注输入（dock 面板 + 旧面板兼容）
     ['time', 'text', 'visual', 'keyframe'].forEach(dim => {
         const dockInput = document.getElementById(`dock-note-${dim}`);
-        if (dockInput) dockInput.value = '';
+        if (dockInput) { dockInput.value = ''; }
         const noteInput = document.getElementById(`note-${dim}`);
-        if (noteInput) noteInput.value = '';
+        if (noteInput) { noteInput.value = ''; }
     });
 }
 
@@ -1166,7 +1245,7 @@ function getCurrentTask() {
 function selectTask(index) {
     const tasks = getTasks();
     if (index < 0 || index >= tasks.length) return;
-    
+
     setTaskIndex(index);
     state.currentOutputGroup = 0; // 默认选择第一组数据
     const task = tasks[index];
@@ -1211,9 +1290,12 @@ function selectTask(index) {
 
     // 渲染内容
     updateModelOutput();
-    
+
     // 根据当前模式渲染对应内容
-    if (state.reviewMode === 'segment') {
+    if (state.comparisonMode) {
+        // 对比模式：刷新两列内容
+        refreshComparisonView();
+    } else if (state.reviewMode === 'segment') {
         switchTab(state.currentTab);
     } else if (state.reviewMode === 'audiovisual') {
         renderAudiovisualContent();
@@ -1261,6 +1343,9 @@ function renderOutputGroupSwitcher(task) {
     }).join('') + `
         <button onclick="openModelManager()" class="px-2 py-1 text-sm text-gray-400 hover:text-gray-600" title="管理模型">
             <span class="mdi mdi-pencil-outline"></span>
+        </button>
+        <button onclick="toggleComparisonMode()" class="px-2.5 py-1 text-sm rounded border border-blue-200 text-blue-500 hover:bg-blue-50 hover:border-blue-400 transition-colors flex items-center gap-1" title="对比模式">
+            <span class="mdi mdi-compare"></span> 对比
         </button>`;
 }
 
@@ -3193,6 +3278,9 @@ window.loadDemoData = loadDemoData;
 function switchReviewMode(mode) {
     if (mode !== 'segment' && mode !== 'profile' && mode !== 'audiovisual') return;
 
+    // 退出对比模式
+    if (state.comparisonMode) exitComparisonMode();
+
     state.reviewMode = mode;
     if (state.currentWorkspaceId) {
         localStorage.setItem(getWorkspaceKey(state.currentWorkspaceId, 'review-mode'), mode);
@@ -3764,7 +3852,7 @@ function resetProfileRatings() {
     
     PROFILE_DIMENSIONS.forEach(dim => {
         const noteInput = document.getElementById(`note-${dim.key}`);
-        if (noteInput) noteInput.value = '';
+        if (noteInput) { noteInput.value = ''; }
     });
 }
 
@@ -3788,9 +3876,9 @@ function resetAudiovisualRatings() {
 
     AUDIOVISUAL_DIMENSIONS.forEach(dim => {
         const dockInput = document.getElementById(`dock-note-${dim.key}`);
-        if (dockInput) dockInput.value = '';
+        if (dockInput) { dockInput.value = ''; }
         const noteInput = document.getElementById(`note-${dim.key}`);
-        if (noteInput) noteInput.value = '';
+        if (noteInput) { noteInput.value = ''; }
     });
 }
 
@@ -3896,9 +3984,9 @@ loadReviewForCurrentGroup = function() {
                 });
                 // 同时更新 dock 面板和旧面板的输入框
                 const dockInput = document.getElementById(`dock-note-${dim}`);
-                if (dockInput) dockInput.value = state.notes[dim] || '';
+                if (dockInput) { dockInput.value = state.notes[dim] || ''; }
                 const noteInput = document.getElementById(`note-${dim}`);
-                if (noteInput) noteInput.value = state.notes[dim] || '';
+                if (noteInput) { noteInput.value = state.notes[dim] || ''; }
             });
         } else {
             resetRatings();
@@ -3914,9 +4002,9 @@ loadReviewForCurrentGroup = function() {
                     highlightProfileStars(group, state.audiovisualRatings[dim.key]);
                 });
                 const dockInput = document.getElementById(`dock-note-${dim.key}`);
-                if (dockInput) dockInput.value = state.audiovisualNotes[dim.key] || '';
+                if (dockInput) { dockInput.value = state.audiovisualNotes[dim.key] || ''; }
                 const noteInput = document.getElementById(`note-${dim.key}`);
-                if (noteInput) noteInput.value = state.audiovisualNotes[dim.key] || '';
+                if (noteInput) { noteInput.value = state.audiovisualNotes[dim.key] || ''; }
             });
         } else {
             // 无人工评审，尝试从自动评估预填
@@ -3956,9 +4044,9 @@ loadReviewForCurrentGroup = function() {
                     if (reason) {
                         state.audiovisualNotes[dim.key] = reason;
                         const dockInput = document.getElementById(`dock-note-${dim.key}`);
-                        if (dockInput) dockInput.value = reason;
+                        if (dockInput) { dockInput.value = reason; }
                         const noteInput = document.getElementById(`note-${dim.key}`);
-                        if (noteInput) noteInput.value = reason;
+                        if (noteInput) { noteInput.value = reason; }
                     }
                 });
             }
@@ -3976,9 +4064,9 @@ loadReviewForCurrentGroup = function() {
                 });
                 // 同时更新 dock 面板和旧面板的输入框
                 const dockInput = document.getElementById(`dock-note-${dim.key}`);
-                if (dockInput) dockInput.value = state.profileNotes[dim.key] || '';
+                if (dockInput) { dockInput.value = state.profileNotes[dim.key] || ''; }
                 const noteInput = document.getElementById(`note-${dim.key}`);
-                if (noteInput) noteInput.value = state.profileNotes[dim.key] || '';
+                if (noteInput) { noteInput.value = state.profileNotes[dim.key] || ''; }
             });
         } else {
             resetProfileRatings();
@@ -4375,3 +4463,435 @@ function toggleSidebar() {
     }
 }
 window.toggleSidebar = toggleSidebar;
+
+// ============================================
+// 对比模式
+// ============================================
+
+function toggleComparisonMode() {
+    if (state.comparisonMode) {
+        exitComparisonMode();
+    } else {
+        enterComparisonMode();
+    }
+}
+
+function enterComparisonMode() {
+    const task = getCurrentTask();
+    if (!task) return;
+    const groupCount = task.model_outputs?.length || 0;
+    if (groupCount < 2) {
+        alert('至少需要2个模型输出才能使用对比模式');
+        return;
+    }
+
+    state.comparisonMode = true;
+    state.comparisonGroups = [0, Math.min(1, groupCount - 1)];
+    state.comparisonTab = state.currentTab || 'text'; // segment 模式下的当前维度
+
+    // 尝试 PiP
+    const video = elements.videoPlayer;
+    if (video && document.pictureInPictureEnabled && !video.disablePictureInPicture) {
+        video.requestPictureInPicture().catch(() => {});
+    }
+
+    // 隐藏视频列
+    const videoCol = document.querySelector('#review-workspace > .flex-1.flex.flex-col');
+    if (videoCol) {
+        videoCol.dataset.prevClass = videoCol.className;
+        videoCol.classList.add('hidden');
+    }
+
+    // 扩展 inspector
+    const inspector = document.querySelector('#review-workspace > .w-\\[420px\\]');
+    if (inspector) {
+        inspector.dataset.prevClass = inspector.className;
+        inspector.className = 'flex-1 flex flex-col h-full pb-2';
+    }
+
+    // 隐藏 output-group-switcher
+    const switcher = document.getElementById('output-group-switcher');
+    if (switcher) switcher.classList.add('hidden');
+
+    // 在 inspector 卡片内，隐藏原有内容，插入对比视图
+    const card = inspector?.querySelector('.ive-card');
+    if (card) {
+        Array.from(card.children).forEach(ch => {
+            ch.dataset.compHidden = ch.classList.contains('hidden') ? 'was-hidden' : '';
+            ch.classList.add('hidden');
+        });
+
+        const compView = document.createElement('div');
+        compView.id = 'comparison-view';
+        compView.className = 'flex-1 flex flex-col overflow-hidden';
+        card.appendChild(compView);
+
+        buildComparisonView(compView, task);
+    }
+}
+
+function buildComparisonView(container, task) {
+    const groupCount = task.model_outputs?.length || 0;
+    const mode = state.reviewMode;
+
+    // 顶部工具栏：维度 tab（segment 模式）+ 退出按钮
+    const toolbar = document.createElement('div');
+    toolbar.className = 'flex items-center gap-2 px-4 py-2 border-b border-gray-100 flex-shrink-0';
+
+    if (mode === 'segment') {
+        toolbar.innerHTML = `
+            <div class="flex gap-4" id="comp-tabs">
+                <button onclick="switchComparisonTab('text')" class="comp-tab-btn text-sm font-semibold text-black border-b-2 border-black pb-1" data-tab="text">文本</button>
+                <button onclick="switchComparisonTab('visual')" class="comp-tab-btn text-sm font-medium text-gray-400 hover:text-gray-600 border-b-2 border-transparent pb-1" data-tab="visual">视觉</button>
+                <button onclick="switchComparisonTab('keyframe')" class="comp-tab-btn text-sm font-medium text-gray-400 hover:text-gray-600 border-b-2 border-transparent pb-1" data-tab="keyframe">关键帧</button>
+            </div>
+            <span class="flex-1"></span>
+            <button onclick="exitComparisonMode()" class="text-xs text-gray-400 hover:text-gray-700 px-2 py-1 rounded hover:bg-gray-100 transition-colors">
+                <span class="mdi mdi-close mr-1"></span>退出对比
+            </button>
+        `;
+    } else {
+        toolbar.innerHTML = `
+            <span class="text-sm font-bold text-gray-700">${mode === 'profile' ? '全篇画像' : '音画质量'} 对比</span>
+            <span class="flex-1"></span>
+            <button onclick="exitComparisonMode()" class="text-xs text-gray-400 hover:text-gray-700 px-2 py-1 rounded hover:bg-gray-100 transition-colors">
+                <span class="mdi mdi-close mr-1"></span>退出对比
+            </button>
+        `;
+    }
+    container.appendChild(toolbar);
+
+    // 双栏容器
+    const cols = document.createElement('div');
+    cols.className = 'flex-1 flex gap-3 p-3 overflow-hidden';
+    cols.id = 'comparison-columns';
+
+    for (let ci = 0; ci < 2; ci++) {
+        const col = document.createElement('div');
+        col.className = 'comparison-column';
+        col.dataset.colIndex = ci;
+
+        // header with model selector
+        const header = document.createElement('div');
+        header.className = 'comp-header';
+        const select = document.createElement('select');
+        select.className = 'text-sm font-semibold bg-transparent border-none outline-none cursor-pointer flex-1';
+        select.dataset.colIndex = ci;
+        for (let gi = 0; gi < groupCount; gi++) {
+            const opt = document.createElement('option');
+            opt.value = gi;
+            opt.textContent = task.model_names?.[gi] || `模型${gi + 1}`;
+            if (gi === state.comparisonGroups[ci]) opt.selected = true;
+            select.appendChild(opt);
+        }
+        select.addEventListener('change', (e) => {
+            const colIdx = parseInt(e.target.dataset.colIndex);
+            state.comparisonGroups[colIdx] = parseInt(e.target.value);
+            renderComparisonColumn(col.querySelector('.comp-body'), task, state.comparisonGroups[colIdx]);
+        });
+        header.appendChild(select);
+        col.appendChild(header);
+
+        // body
+        const body = document.createElement('div');
+        body.className = 'comp-body no-scrollbar';
+        col.appendChild(body);
+        cols.appendChild(col);
+
+        // render
+        renderComparisonColumn(body, task, state.comparisonGroups[ci]);
+    }
+
+    container.appendChild(cols);
+}
+
+function switchComparisonTab(tabName) {
+    state.comparisonTab = tabName;
+    // 更新 tab 样式
+    document.querySelectorAll('.comp-tab-btn').forEach(btn => {
+        const isActive = btn.dataset.tab === tabName;
+        btn.classList.toggle('font-semibold', isActive);
+        btn.classList.toggle('text-black', isActive);
+        btn.classList.toggle('border-black', isActive);
+        btn.classList.toggle('font-medium', !isActive);
+        btn.classList.toggle('text-gray-400', !isActive);
+        btn.classList.toggle('border-transparent', !isActive);
+    });
+    // 重新渲染两列
+    const task = getCurrentTask();
+    if (!task) return;
+    document.querySelectorAll('#comparison-columns .comp-body').forEach((body, ci) => {
+        renderComparisonColumn(body, task, state.comparisonGroups[ci]);
+    });
+}
+window.switchComparisonTab = switchComparisonTab;
+
+function renderComparisonColumn(bodyEl, task, groupIndex) {
+    const output = task.model_outputs?.[groupIndex];
+    if (!output) {
+        bodyEl.innerHTML = '<div class="text-gray-400 text-center py-8">无数据</div>';
+        return;
+    }
+
+    if (output._parseError) {
+        bodyEl.innerHTML = `
+            <div class="p-4 rounded-2xl border border-amber-200 bg-amber-50">
+                <div class="flex items-center gap-2 mb-2">
+                    <span class="mdi mdi-alert text-amber-500"></span>
+                    <span class="text-sm font-semibold text-amber-800">JSON 解析失败</span>
+                </div>
+                <pre class="text-xs text-gray-700 bg-white border rounded-lg p-2 overflow-auto max-h-40 whitespace-pre-wrap break-all">${escapeHTML(output.raw || '')}</pre>
+            </div>`;
+        return;
+    }
+
+    const mode = state.reviewMode;
+    let html = '';
+
+    if (mode === 'segment') {
+        const segments = output.segments || [];
+        const tab = state.comparisonTab || 'text';
+        if (tab === 'text') {
+            html = generateSegmentTextHTML(segments);
+        } else if (tab === 'visual') {
+            html = generateSegmentVisualHTML(segments);
+        } else if (tab === 'keyframe') {
+            html = generateSegmentKeyframeHTML(segments);
+        }
+    } else if (mode === 'profile') {
+        html = generateProfileHTML(output.profile || null);
+    } else if (mode === 'audiovisual') {
+        html = generateAudiovisualHTML(output.audiovisual || null, task.autoEval);
+    }
+
+    bodyEl.innerHTML = `<div class="space-y-4 text-sm leading-relaxed text-gray-600">${html || '<div class="text-gray-400 text-center py-8">暂无数据</div>'}</div>`;
+}
+
+// 分段模式 - 文本
+function generateSegmentTextHTML(segments) {
+    if (!segments || segments.length === 0) return '';
+    return segments.map((seg, i) => `
+        <div class="p-3 rounded-xl bg-black/[0.03] cursor-pointer hover:bg-black/[0.06] transition-all" onclick="seekToTime(${seg.start})">
+            <div class="flex justify-between items-center mb-1">
+                <span class="text-xs font-semibold text-gray-800">${i + 1}</span>
+                <span class="text-[11px] text-gray-400 font-mono">${formatTime(seg.start)} → ${formatTime(seg.end)}</span>
+            </div>
+            <p class="text-sm text-gray-700">${(seg.description || seg.text || '') || '无文本'}</p>
+        </div>
+    `).join('');
+}
+
+// 分段模式 - 视觉
+function generateSegmentVisualHTML(segments) {
+    if (!segments || segments.length === 0) return '';
+    const visual = segments.filter(s => s.visual);
+    if (visual.length === 0) return '<div class="text-gray-400 text-center py-4">暂无视觉数据</div>';
+    return visual.map((seg, i) => `
+        <div class="p-3 rounded-xl bg-black/[0.03] cursor-pointer hover:bg-black/[0.06] transition-all" onclick="seekToTime(${seg.start})">
+            <div class="flex justify-between items-center mb-1">
+                <span class="text-xs font-semibold text-gray-800">${i + 1}</span>
+                <span class="text-[11px] text-gray-400 font-mono">${formatTime(seg.start)} → ${formatTime(seg.end)}</span>
+            </div>
+            <p class="text-sm text-gray-700">${linkifyTime(seg.visual)}</p>
+        </div>
+    `).join('');
+}
+
+// 分段模式 - 关键帧
+function generateSegmentKeyframeHTML(segments) {
+    if (!segments || segments.length === 0) return '';
+    const allKf = [];
+    segments.forEach((seg, si) => {
+        if (seg.keyframes && Array.isArray(seg.keyframes)) {
+            seg.keyframes.forEach(kf => allKf.push({ ...kf, segIdx: si + 1 }));
+        }
+    });
+    if (allKf.length === 0) return '<div class="text-gray-400 text-center py-4">暂无关键帧数据</div>';
+    allKf.sort((a, b) => a.time - b.time);
+    return allKf.map(kf => `
+        <div class="flex items-center gap-3 p-3 rounded-xl bg-black/[0.03] cursor-pointer hover:bg-black/[0.06] transition-all" onclick="seekToTime(${kf.time})">
+            <span class="px-2 py-0.5 bg-black text-white text-[11px] font-medium rounded-full font-mono">${formatTime(kf.time)}</span>
+            <div class="flex-1">
+                <span class="text-sm text-gray-700">${kf.label || kf.desc || '关键帧'}</span>
+                <span class="text-[11px] text-gray-400 ml-1">§${kf.segIdx}</span>
+            </div>
+        </div>
+    `).join('');
+}
+
+// 生成 Profile 内容 HTML
+function generateProfileHTML(profileData) {
+    if (!profileData) return '';
+    const sections = [];
+
+    if (profileData.narrative_type) {
+        sections.push(renderProfileSection('叙事类型', 'mdi-book-open-variant', 'blue',
+            profileData.narrative_type.tag, profileData.narrative_type.reason));
+    }
+    if (profileData.visual_type) {
+        const visualTag = typeof profileData.visual_type === 'object'
+            ? `主要: ${profileData.visual_type['主要画面类型'] || profileData.visual_type.main || '-'}, 次要: ${profileData.visual_type['次要画面类型'] || profileData.visual_type.secondary || '-'}`
+            : profileData.visual_type;
+        sections.push(renderProfileSection('画面类型', 'mdi-image', 'green', visualTag, null));
+    }
+    if (profileData.summary) {
+        sections.push(renderProfileSection('内容总结', 'mdi-text-box', 'purple', null, profileData.summary));
+    }
+    if (profileData.intent_type) {
+        sections.push(renderProfileSection('创作意图', 'mdi-target', 'orange',
+            profileData.intent_type.tag, profileData.intent_type.reason));
+    }
+    if (profileData.topic_consistency) {
+        sections.push(renderProfileSection('主题一致性', 'mdi-bullseye-arrow', 'teal',
+            profileData.topic_consistency.tag, profileData.topic_consistency.reason));
+    }
+    if (profileData.core_claim) {
+        const claims = Array.isArray(profileData.core_claim)
+            ? profileData.core_claim.join('；')
+            : profileData.core_claim;
+        sections.push(renderProfileSection('核心观点', 'mdi-lightbulb', 'yellow', null, claims));
+    }
+    if (profileData.emotion_type) {
+        sections.push(renderProfileSection('情感类型', 'mdi-emoticon', 'pink',
+            profileData.emotion_type.tag, profileData.emotion_type.reason));
+    }
+
+    return sections.join('');
+}
+
+// 生成 Audiovisual 内容 HTML
+function generateAudiovisualHTML(avData, autoEval) {
+    if (!avData) return '';
+    const sections = [];
+    const ev = autoEval || null;
+
+    function getEval(obj) {
+        if (!obj) return null;
+        const d = Array.isArray(obj) ? obj[0] : obj;
+        if (!d || (d['得分'] == null && d['理由'] == null)) return null;
+        return { score: d['得分'] ?? null, reason: d['理由'] || '', timeScore: d['time得分'] ?? null, timeReason: d['time理由'] || '' };
+    }
+
+    if (avData.audiovisual_integration?.detail_quality) {
+        const dq = avData.audiovisual_integration.detail_quality;
+        sections.push(renderAVSection('总体质量', 'mdi-tune-variant', dq.level, dq.desc, false, getEval(ev?.audiovisual_integration?.detail_quality)));
+    }
+
+    const vpe = avData.vision_quality?.visual_processing_elements;
+    if (vpe && vpe.length > 0) {
+        const items = vpe.map(el => {
+            const timeStr = Array.isArray(el.time) ? `${formatTimeLink(el.time[0])}→${formatTimeLink(el.time[1])}` : '';
+            return `<b>${escapeHTML(el.tag || '-')}</b>：${linkifyTime(escapeHTML(el.desc || ''))}` +
+                (el.position ? ` <span class="text-gray-400">[${escapeHTML(el.position)}]</span>` : '') +
+                (timeStr ? ` <span class="text-gray-400 font-mono text-[11px]">${timeStr}</span>` : '');
+        }).join('<br>');
+        sections.push(renderAVSection('加工元素', 'mdi-image-filter-center-focus', null, items, true, getEval(ev?.vision_quality?.visual_processing_elements)));
+    }
+
+    const comp = avData.vision_quality?.composition;
+    if (comp && comp.length > 0) {
+        const items = comp.map(el => {
+            const timeStr = Array.isArray(el.time) ? `${formatTimeLink(el.time[0])}→${formatTimeLink(el.time[1])}` : '';
+            return `<b>${escapeHTML(el.tag || el.desc || '-')}</b>` +
+                (el.desc && el.tag ? `：${linkifyTime(escapeHTML(el.desc))}` : '') +
+                (timeStr ? ` <span class="text-gray-400 font-mono text-[11px]">${timeStr}</span>` : '');
+        }).join('<br>');
+        sections.push(renderAVSection('构图', 'mdi-grid', null, items, true, getEval(ev?.vision_quality?.composition)));
+    }
+
+    const man = avData.content_subject?.man_negative_content;
+    if (man && man.length > 0) {
+        sections.push(renderAVSection('人物', 'mdi-account', null, man.map(el => renderAVListItem(el)).join('<br>'), true, getEval(ev?.content_subject?.man_negative_content)));
+    }
+
+    const creature = avData.content_subject?.creature_negative_content;
+    if (creature && creature.length > 0) {
+        sections.push(renderAVSection('生物', 'mdi-paw', null, creature.map(el => renderAVListItem(el)).join('<br>'), true, getEval(ev?.content_subject?.creature_negative_content)));
+    }
+
+    const qi = avData.information?.questionable_info;
+    if (qi) {
+        sections.push(renderAVSection('真实性存疑', 'mdi-alert-circle', qi.has_issue ? '是' : '否', qi.desc !== '无' ? qi.desc : null, false, getEval(ev?.information?.questionable_info)));
+    }
+
+    const vi = avData.intent?.vulgar_intent;
+    if (vi) {
+        sections.push(renderAVSection('低俗意图', 'mdi-eye-off', vi.has_intent ? '是' : '否', vi.desc !== '无' ? vi.desc : null, false, getEval(ev?.intent?.vulgar_intent)));
+    }
+
+    return sections.join('');
+}
+
+// 刷新对比视图（切换任务时调用）
+function refreshComparisonView() {
+    const task = getCurrentTask();
+    if (!task) return;
+    const groupCount = task.model_outputs?.length || 0;
+    if (groupCount < 2) {
+        exitComparisonMode();
+        return;
+    }
+    // clamp 选中的组索引
+    state.comparisonGroups = state.comparisonGroups.map(g => Math.min(g, groupCount - 1));
+    // 更新选择器选项 + 重新渲染
+    document.querySelectorAll('#comparison-columns .comparison-column').forEach((col, ci) => {
+        const select = col.querySelector('select');
+        if (select) {
+            select.innerHTML = '';
+            for (let gi = 0; gi < groupCount; gi++) {
+                const opt = document.createElement('option');
+                opt.value = gi;
+                opt.textContent = task.model_names?.[gi] || `模型${gi + 1}`;
+                if (gi === state.comparisonGroups[ci]) opt.selected = true;
+                select.appendChild(opt);
+            }
+        }
+        const body = col.querySelector('.comp-body');
+        if (body) renderComparisonColumn(body, task, state.comparisonGroups[ci]);
+    });
+}
+
+function exitComparisonMode() {
+    if (!state.comparisonMode) return;
+    state.comparisonMode = false;
+
+    // 退出 PiP
+    if (document.pictureInPictureElement) {
+        document.exitPictureInPicture().catch(() => {});
+    }
+
+    // 移除对比视图
+    const compView = document.getElementById('comparison-view');
+    if (compView) compView.remove();
+
+    // 恢复所有带 data-prev-class 的元素
+    document.querySelectorAll('[data-prev-class]').forEach(el => {
+        el.className = el.dataset.prevClass;
+        delete el.dataset.prevClass;
+    });
+
+    // 恢复 inspector 卡片内部内容
+    document.querySelectorAll('[data-comp-hidden]').forEach(ch => {
+        if (ch.dataset.compHidden !== 'was-hidden') {
+            ch.classList.remove('hidden');
+        }
+        delete ch.dataset.compHidden;
+    });
+
+    // 重新渲染
+    const task = getCurrentTask();
+    if (task) {
+        renderOutputGroupSwitcher(task);
+        if (state.reviewMode === 'segment') {
+            switchTab(state.currentTab);
+        } else if (state.reviewMode === 'audiovisual') {
+            renderAudiovisualContent();
+        } else {
+            renderProfileContent();
+        }
+    }
+}
+
+// 全局注册
+window.toggleComparisonMode = toggleComparisonMode;
+window.exitComparisonMode = exitComparisonMode;

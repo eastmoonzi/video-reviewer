@@ -171,6 +171,18 @@
             transition: background 0.2s;
         }
         .soft-input:focus { background: #E5E5EA; outline: none; }
+        /* Textarea notes: default collapsed 1 line, expand upward on focus */
+        textarea.soft-input, textarea.av-rate-note {
+            resize: none; overflow: hidden; min-height: 1.8em;
+            line-height: 1.4; display: block;
+            height: 1.8em; transition: height 0.15s ease, margin-top 0.15s ease;
+        }
+        textarea.soft-input:focus, textarea.av-rate-note:focus {
+            overflow-y: auto; height: 7em; margin-top: -5.2em;
+        }
+        /* Keep textarea background unchanged on focus */
+        textarea.soft-input:focus { background: #F2F2F7; }
+        textarea.av-rate-note:focus { background: #f9fafb; }
         
         /* Tab Active State */
         .tab-btn {
@@ -187,6 +199,20 @@
             border-radius: 8px;
             box-shadow: 0 2px 8px rgba(0,0,0,0.08);
         }
+        /* Comparison mode */
+        .comparison-column {
+            flex: 1; min-width: 0; display: flex; flex-direction: column;
+            border: 1px solid #e5e7eb; border-radius: 16px; overflow: hidden; background: #fff;
+        }
+        .comparison-column .comp-header {
+            padding: 8px 12px; border-bottom: 1px solid #e5e7eb; flex-shrink: 0;
+            display: flex; align-items: center; gap: 8px; background: #f9fafb;
+        }
+        .comparison-column .comp-body {
+            flex: 1; overflow-y: auto; padding: 12px; font-size: 14px;
+            line-height: 1.6; color: #374151;
+        }
+        .comparison-column .comp-body .space-y-6 > * + * { margin-top: 1.5rem; }
     </style>
 </head>
 <body class="h-screen w-screen overflow-hidden flex selection:bg-blue-100 selection:text-blue-900">
@@ -335,6 +361,9 @@
                                         <option value="1.5">1.5×</option>
                                         <option value="2">2×</option>
                                     </select>
+                                    <button id="comparison-mode-btn" onclick="toggleComparisonMode()" class="w-8 h-8 flex items-center justify-center text-white/70 hover:text-white rounded-full hover:bg-white/10 transition-colors" title="对比模式">
+                                        <span class="mdi mdi-compare text-lg"></span>
+                                    </button>
                                 </div>
                             </div>
                         </div>
@@ -360,6 +389,12 @@
                                 <button onclick="switchTab('text')" class="tab-btn tab-active py-4 text-sm font-semibold text-black border-b-2 border-black" data-tab="text">文本</button>
                                 <button onclick="switchTab('visual')" class="tab-btn py-4 text-sm font-medium text-gray-400 hover:text-gray-600 transition-colors border-b-2 border-transparent" data-tab="visual">视觉</button>
                                 <button onclick="switchTab('keyframe')" class="tab-btn py-4 text-sm font-medium text-gray-400 hover:text-gray-600 transition-colors border-b-2 border-transparent" data-tab="keyframe">关键帧</button>
+                                <div class="ml-auto flex items-center gap-1.5 self-center">
+                                    <input type="text" id="time-jump-input" placeholder="跳转 1:30" class="w-[80px] text-xs py-1 px-2 rounded-lg bg-gray-100 border-none outline-none focus:bg-gray-200 font-mono transition-colors" onkeydown="if(event.key==='Enter'){jumpToInputTime(); event.preventDefault();}">
+                                    <button onclick="jumpToInputTime()" class="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-black hover:bg-gray-100 transition-colors" title="跳转到指定时间">
+                                        <span class="mdi mdi-arrow-right-bold text-sm"></span>
+                                    </button>
+                                </div>
                             </div>
                             
                             <div id="tab-content" class="flex-1 overflow-y-auto p-6 pb-32 no-scrollbar">
@@ -399,7 +434,7 @@
                                     <span class="rating-star mdi mdi-star text-base cursor-pointer" data-value="3"></span>
                                 </div>
                             </div>
-                            <input type="text" id="note-time" placeholder="备注..." class="soft-input text-xs py-1">
+                            <textarea rows="1" id="note-time" placeholder="备注..." class="soft-input text-xs py-1"></textarea>
                         </div>
                         <div class="flex flex-col gap-1">
                             <div class="flex items-center justify-between">
@@ -410,7 +445,7 @@
                                     <span class="rating-star mdi mdi-star text-base cursor-pointer" data-value="3"></span>
                                 </div>
                             </div>
-                            <input type="text" id="note-text" placeholder="备注..." class="soft-input text-xs py-1">
+                            <textarea rows="1" id="note-text" placeholder="备注..." class="soft-input text-xs py-1"></textarea>
                         </div>
                         <div class="flex flex-col gap-1">
                             <div class="flex items-center justify-between">
@@ -421,7 +456,7 @@
                                     <span class="rating-star mdi mdi-star text-base cursor-pointer" data-value="3"></span>
                                 </div>
                             </div>
-                            <input type="text" id="note-visual" placeholder="备注..." class="soft-input text-xs py-1">
+                            <textarea rows="1" id="note-visual" placeholder="备注..." class="soft-input text-xs py-1"></textarea>
                         </div>
                         <div class="flex flex-col gap-1">
                             <div class="flex items-center justify-between">
@@ -432,7 +467,7 @@
                                     <span class="rating-star mdi mdi-star text-base cursor-pointer" data-value="3"></span>
                                 </div>
                             </div>
-                            <input type="text" id="note-keyframe" placeholder="备注..." class="soft-input text-xs py-1">
+                            <textarea rows="1" id="note-keyframe" placeholder="备注..." class="soft-input text-xs py-1"></textarea>
                         </div>
                     </div>
                     <!-- Actions -->
@@ -459,7 +494,7 @@
                                     <span class="rating-star mdi mdi-numeric-2-circle-outline text-xs cursor-pointer" data-value="2"></span>
                                 </div>
                             </div>
-                            <input type="text" id="note-narrative_type" placeholder="备注" class="soft-input text-[10px] py-0.5 px-1.5">
+                            <textarea rows="1" id="note-narrative_type" placeholder="备注" class="soft-input text-[10px] py-0.5 px-1.5"></textarea>
                         </div>
                         <div class="flex flex-col gap-0.5 min-w-[90px]">
                             <div class="flex items-center justify-between gap-1">
@@ -470,7 +505,7 @@
                                     <span class="rating-star mdi mdi-numeric-2-circle-outline text-xs cursor-pointer" data-value="2"></span>
                                 </div>
                             </div>
-                            <input type="text" id="note-visual_type" placeholder="备注" class="soft-input text-[10px] py-0.5 px-1.5">
+                            <textarea rows="1" id="note-visual_type" placeholder="备注" class="soft-input text-[10px] py-0.5 px-1.5"></textarea>
                         </div>
                         <div class="flex flex-col gap-0.5 min-w-[90px]">
                             <div class="flex items-center justify-between gap-1">
@@ -481,7 +516,7 @@
                                     <span class="rating-star mdi mdi-numeric-2-circle-outline text-xs cursor-pointer" data-value="2"></span>
                                 </div>
                             </div>
-                            <input type="text" id="note-summary" placeholder="备注" class="soft-input text-[10px] py-0.5 px-1.5">
+                            <textarea rows="1" id="note-summary" placeholder="备注" class="soft-input text-[10px] py-0.5 px-1.5"></textarea>
                         </div>
                         <div class="flex flex-col gap-0.5 min-w-[90px]">
                             <div class="flex items-center justify-between gap-1">
@@ -492,7 +527,7 @@
                                     <span class="rating-star mdi mdi-numeric-2-circle-outline text-xs cursor-pointer" data-value="2"></span>
                                 </div>
                             </div>
-                            <input type="text" id="note-intent_type" placeholder="备注" class="soft-input text-[10px] py-0.5 px-1.5">
+                            <textarea rows="1" id="note-intent_type" placeholder="备注" class="soft-input text-[10px] py-0.5 px-1.5"></textarea>
                         </div>
                         <div class="flex flex-col gap-0.5 min-w-[90px]">
                             <div class="flex items-center justify-between gap-1">
@@ -503,7 +538,7 @@
                                     <span class="rating-star mdi mdi-numeric-2-circle-outline text-xs cursor-pointer" data-value="2"></span>
                                 </div>
                             </div>
-                            <input type="text" id="note-topic_consistency" placeholder="备注" class="soft-input text-[10px] py-0.5 px-1.5">
+                            <textarea rows="1" id="note-topic_consistency" placeholder="备注" class="soft-input text-[10px] py-0.5 px-1.5"></textarea>
                         </div>
                         <div class="flex flex-col gap-0.5 min-w-[90px]">
                             <div class="flex items-center justify-between gap-1">
@@ -514,7 +549,7 @@
                                     <span class="rating-star mdi mdi-numeric-2-circle-outline text-xs cursor-pointer" data-value="2"></span>
                                 </div>
                             </div>
-                            <input type="text" id="note-core_claim" placeholder="备注" class="soft-input text-[10px] py-0.5 px-1.5">
+                            <textarea rows="1" id="note-core_claim" placeholder="备注" class="soft-input text-[10px] py-0.5 px-1.5"></textarea>
                         </div>
                         <div class="flex flex-col gap-0.5 min-w-[90px]">
                             <div class="flex items-center justify-between gap-1">
@@ -525,7 +560,7 @@
                                     <span class="rating-star mdi mdi-numeric-2-circle-outline text-xs cursor-pointer" data-value="2"></span>
                                 </div>
                             </div>
-                            <input type="text" id="note-emotion_type" placeholder="备注" class="soft-input text-[10px] py-0.5 px-1.5">
+                            <textarea rows="1" id="note-emotion_type" placeholder="备注" class="soft-input text-[10px] py-0.5 px-1.5"></textarea>
                         </div>
                     </div>
                     <!-- Actions -->
@@ -573,7 +608,7 @@
                                 <span class="rating-star mdi mdi-star text-2xl cursor-pointer" data-value="3"></span>
                             </div>
                         </div>
-                        <input type="text" id="dock-note-time" placeholder="备注..." class="soft-input text-base py-2">
+                        <textarea rows="1" id="dock-note-time" placeholder="备注..." class="soft-input text-base py-2"></textarea>
                     </div>
                     <div class="flex flex-col gap-2">
                         <div class="flex items-center justify-between">
@@ -584,7 +619,7 @@
                                 <span class="rating-star mdi mdi-star text-2xl cursor-pointer" data-value="3"></span>
                             </div>
                         </div>
-                        <input type="text" id="dock-note-text" placeholder="备注..." class="soft-input text-base py-2">
+                        <textarea rows="1" id="dock-note-text" placeholder="备注..." class="soft-input text-base py-2"></textarea>
                     </div>
                     <div class="flex flex-col gap-2">
                         <div class="flex items-center justify-between">
@@ -595,7 +630,7 @@
                                 <span class="rating-star mdi mdi-star text-2xl cursor-pointer" data-value="3"></span>
                             </div>
                         </div>
-                        <input type="text" id="dock-note-visual" placeholder="备注..." class="soft-input text-base py-2">
+                        <textarea rows="1" id="dock-note-visual" placeholder="备注..." class="soft-input text-base py-2"></textarea>
                     </div>
                     <div class="flex flex-col gap-2">
                         <div class="flex items-center justify-between">
@@ -606,7 +641,7 @@
                                 <span class="rating-star mdi mdi-star text-2xl cursor-pointer" data-value="3"></span>
                             </div>
                         </div>
-                        <input type="text" id="dock-note-keyframe" placeholder="备注..." class="soft-input text-base py-2">
+                        <textarea rows="1" id="dock-note-keyframe" placeholder="备注..." class="soft-input text-base py-2"></textarea>
                     </div>
                 </div>
                 <div class="flex items-center gap-3 pl-5 border-l-2 border-gray-300 flex-shrink-0">
@@ -629,7 +664,7 @@
                                 <span class="rating-star mdi mdi-numeric-2-circle-outline text-xl cursor-pointer" data-value="2"></span>
                             </div>
                         </div>
-                        <input type="text" id="dock-note-narrative_type" placeholder="备注" class="soft-input text-base py-1.5 px-2">
+                        <textarea rows="1" id="dock-note-narrative_type" placeholder="备注" class="soft-input text-base py-1.5 px-2"></textarea>
                     </div>
                     <div class="flex flex-col gap-1.5 min-w-[110px]">
                         <div class="flex items-center justify-between gap-2">
@@ -640,7 +675,7 @@
                                 <span class="rating-star mdi mdi-numeric-2-circle-outline text-xl cursor-pointer" data-value="2"></span>
                             </div>
                         </div>
-                        <input type="text" id="dock-note-visual_type" placeholder="备注" class="soft-input text-base py-1.5 px-2">
+                        <textarea rows="1" id="dock-note-visual_type" placeholder="备注" class="soft-input text-base py-1.5 px-2"></textarea>
                     </div>
                     <div class="flex flex-col gap-1.5 min-w-[110px]">
                         <div class="flex items-center justify-between gap-2">
@@ -651,7 +686,7 @@
                                 <span class="rating-star mdi mdi-numeric-2-circle-outline text-xl cursor-pointer" data-value="2"></span>
                             </div>
                         </div>
-                        <input type="text" id="dock-note-summary" placeholder="备注" class="soft-input text-base py-1.5 px-2">
+                        <textarea rows="1" id="dock-note-summary" placeholder="备注" class="soft-input text-base py-1.5 px-2"></textarea>
                     </div>
                     <div class="flex flex-col gap-1.5 min-w-[110px]">
                         <div class="flex items-center justify-between gap-2">
@@ -662,7 +697,7 @@
                                 <span class="rating-star mdi mdi-numeric-2-circle-outline text-xl cursor-pointer" data-value="2"></span>
                             </div>
                         </div>
-                        <input type="text" id="dock-note-intent_type" placeholder="备注" class="soft-input text-base py-1.5 px-2">
+                        <textarea rows="1" id="dock-note-intent_type" placeholder="备注" class="soft-input text-base py-1.5 px-2"></textarea>
                     </div>
                     <div class="flex flex-col gap-1.5 min-w-[110px]">
                         <div class="flex items-center justify-between gap-2">
@@ -673,7 +708,7 @@
                                 <span class="rating-star mdi mdi-numeric-2-circle-outline text-xl cursor-pointer" data-value="2"></span>
                             </div>
                         </div>
-                        <input type="text" id="dock-note-topic_consistency" placeholder="备注" class="soft-input text-base py-1.5 px-2">
+                        <textarea rows="1" id="dock-note-topic_consistency" placeholder="备注" class="soft-input text-base py-1.5 px-2"></textarea>
                     </div>
                     <div class="flex flex-col gap-1.5 min-w-[110px]">
                         <div class="flex items-center justify-between gap-2">
@@ -684,7 +719,7 @@
                                 <span class="rating-star mdi mdi-numeric-2-circle-outline text-xl cursor-pointer" data-value="2"></span>
                             </div>
                         </div>
-                        <input type="text" id="dock-note-core_claim" placeholder="备注" class="soft-input text-base py-1.5 px-2">
+                        <textarea rows="1" id="dock-note-core_claim" placeholder="备注" class="soft-input text-base py-1.5 px-2"></textarea>
                     </div>
                     <div class="flex flex-col gap-1.5 min-w-[110px]">
                         <div class="flex items-center justify-between gap-2">
@@ -695,7 +730,7 @@
                                 <span class="rating-star mdi mdi-numeric-2-circle-outline text-xl cursor-pointer" data-value="2"></span>
                             </div>
                         </div>
-                        <input type="text" id="dock-note-emotion_type" placeholder="备注" class="soft-input text-base py-1.5 px-2">
+                        <textarea rows="1" id="dock-note-emotion_type" placeholder="备注" class="soft-input text-base py-1.5 px-2"></textarea>
                     </div>
                 </div>
                 <div class="flex items-center gap-3 pl-5 border-l-2 border-gray-300 flex-shrink-0">
@@ -713,68 +748,68 @@
                         <!-- Row 1: 总体 | 加工 | 加工时间 | 构图 | 构图时间 | 人物 | 人物时间 | 生物 -->
                         <div class="av-rate-cell">
                             <div class="av-rate-top"><span class="av-rate-label">总体</span><div class="rating-group flex" data-dimension="overall_quality" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
-                            <input type="text" id="dock-note-overall_quality" placeholder="备注" class="av-rate-note">
+                            <textarea rows="1" id="dock-note-overall_quality" placeholder="备注" class="av-rate-note"></textarea>
                         </div>
                         <div class="av-rate-cell">
                             <div class="av-rate-top"><span class="av-rate-label">加工</span><div class="rating-group flex" data-dimension="processing_elements" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
-                            <input type="text" id="dock-note-processing_elements" placeholder="备注" class="av-rate-note">
+                            <textarea rows="1" id="dock-note-processing_elements" placeholder="备注" class="av-rate-note"></textarea>
                         </div>
                         <div class="av-rate-cell">
                             <div class="av-rate-top"><span class="av-rate-label">加工时间</span><div class="rating-group flex" data-dimension="processing_elements_time" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
-                            <input type="text" id="dock-note-processing_elements_time" placeholder="备注" class="av-rate-note">
+                            <textarea rows="1" id="dock-note-processing_elements_time" placeholder="备注" class="av-rate-note"></textarea>
                         </div>
                         <div class="av-rate-cell">
                             <div class="av-rate-top"><span class="av-rate-label">构图</span><div class="rating-group flex" data-dimension="composition" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
-                            <input type="text" id="dock-note-composition" placeholder="备注" class="av-rate-note">
+                            <textarea rows="1" id="dock-note-composition" placeholder="备注" class="av-rate-note"></textarea>
                         </div>
                         <div class="av-rate-cell">
                             <div class="av-rate-top"><span class="av-rate-label">构图时间</span><div class="rating-group flex" data-dimension="composition_time" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
-                            <input type="text" id="dock-note-composition_time" placeholder="备注" class="av-rate-note">
+                            <textarea rows="1" id="dock-note-composition_time" placeholder="备注" class="av-rate-note"></textarea>
                         </div>
                         <div class="av-rate-cell">
                             <div class="av-rate-top"><span class="av-rate-label">人物</span><div class="rating-group flex" data-dimension="person" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
-                            <input type="text" id="dock-note-person" placeholder="备注" class="av-rate-note">
+                            <textarea rows="1" id="dock-note-person" placeholder="备注" class="av-rate-note"></textarea>
                         </div>
                         <div class="av-rate-cell">
                             <div class="av-rate-top"><span class="av-rate-label">人物时间</span><div class="rating-group flex" data-dimension="person_time" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
-                            <input type="text" id="dock-note-person_time" placeholder="备注" class="av-rate-note">
+                            <textarea rows="1" id="dock-note-person_time" placeholder="备注" class="av-rate-note"></textarea>
                         </div>
                         <div class="av-rate-cell">
                             <div class="av-rate-top"><span class="av-rate-label">生物</span><div class="rating-group flex" data-dimension="creature" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
-                            <input type="text" id="dock-note-creature" placeholder="备注" class="av-rate-note">
+                            <textarea rows="1" id="dock-note-creature" placeholder="备注" class="av-rate-note"></textarea>
                         </div>
                         <!-- Row 2: 生物时间 | 信息 | 真实性 | 地理 | 时效 | 低俗 | 营销 | 道德 -->
                         <div class="av-rate-cell">
                             <div class="av-rate-top"><span class="av-rate-label">生物时间</span><div class="rating-group flex" data-dimension="creature_time" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
-                            <input type="text" id="dock-note-creature_time" placeholder="备注" class="av-rate-note">
+                            <textarea rows="1" id="dock-note-creature_time" placeholder="备注" class="av-rate-note"></textarea>
                         </div>
                         <div class="av-rate-cell">
                             <div class="av-rate-top"><span class="av-rate-label">信息</span><div class="rating-group flex" data-dimension="info_attributes" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
-                            <input type="text" id="dock-note-info_attributes" placeholder="备注" class="av-rate-note">
+                            <textarea rows="1" id="dock-note-info_attributes" placeholder="备注" class="av-rate-note"></textarea>
                         </div>
                         <div class="av-rate-cell">
                             <div class="av-rate-top"><span class="av-rate-label">真实性</span><div class="rating-group flex" data-dimension="questionable_info" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
-                            <input type="text" id="dock-note-questionable_info" placeholder="备注" class="av-rate-note">
+                            <textarea rows="1" id="dock-note-questionable_info" placeholder="备注" class="av-rate-note"></textarea>
                         </div>
                         <div class="av-rate-cell">
                             <div class="av-rate-top"><span class="av-rate-label">地理</span><div class="rating-group flex" data-dimension="geographic_info" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
-                            <input type="text" id="dock-note-geographic_info" placeholder="备注" class="av-rate-note">
+                            <textarea rows="1" id="dock-note-geographic_info" placeholder="备注" class="av-rate-note"></textarea>
                         </div>
                         <div class="av-rate-cell">
                             <div class="av-rate-top"><span class="av-rate-label">时效</span><div class="rating-group flex" data-dimension="timeliness_info" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
-                            <input type="text" id="dock-note-timeliness_info" placeholder="备注" class="av-rate-note">
+                            <textarea rows="1" id="dock-note-timeliness_info" placeholder="备注" class="av-rate-note"></textarea>
                         </div>
                         <div class="av-rate-cell">
                             <div class="av-rate-top"><span class="av-rate-label">低俗</span><div class="rating-group flex" data-dimension="vulgar_intent" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
-                            <input type="text" id="dock-note-vulgar_intent" placeholder="备注" class="av-rate-note">
+                            <textarea rows="1" id="dock-note-vulgar_intent" placeholder="备注" class="av-rate-note"></textarea>
                         </div>
                         <div class="av-rate-cell">
                             <div class="av-rate-top"><span class="av-rate-label">营销</span><div class="rating-group flex" data-dimension="promotional_intent" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
-                            <input type="text" id="dock-note-promotional_intent" placeholder="备注" class="av-rate-note">
+                            <textarea rows="1" id="dock-note-promotional_intent" placeholder="备注" class="av-rate-note"></textarea>
                         </div>
                         <div class="av-rate-cell">
                             <div class="av-rate-top"><span class="av-rate-label">道德</span><div class="rating-group flex" data-dimension="immoral_values" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
-                            <input type="text" id="dock-note-immoral_values" placeholder="备注" class="av-rate-note">
+                            <textarea rows="1" id="dock-note-immoral_values" placeholder="备注" class="av-rate-note"></textarea>
                         </div>
                     </div>
                 </div>
