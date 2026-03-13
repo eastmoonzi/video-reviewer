@@ -464,8 +464,8 @@ function linkifyTime(text) {
         { re: /(\d+)\s*m\s*(\d+)\s*s/gi, calc: (m) => parseInt(m[1]) * 60 + parseInt(m[2]) },
         // MM:SS（后面可以跟空白、标点、→、HTML标签、行尾等）
         { re: /(\d{1,2}):(\d{2})(?=\s|$|[，。,.;；、）\)→\-<])/g, calc: (m) => parseInt(m[1]) * 60 + parseInt(m[2]) },
-        // X-Ys（取起始时间）
-        { re: /(\d+)-(\d+)\s*(?:s|秒)/gi, calc: (m) => parseInt(m[1]) },
+        // X-Ys / X至Ys / X 至 Y秒（取起始时间）
+        { re: /(\d+)\s*[-至]\s*(\d+)\s*(?:s|秒)/gi, calc: (m) => parseInt(m[1]) },
         // X分 / X分钟
         { re: /(\d+)\s*分钟?(?!\s*\d)/g, calc: (m) => parseInt(m[1]) * 60 },
         // Xm（不后跟数字/s，避免与 XmYs 冲突）
