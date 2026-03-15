@@ -7,6 +7,9 @@
 ## 快速开始
 
 在线打开上方链接即可使用，或本地双击 `index.html` 打开。
+
+开发说明：为了提升生产环境的加载性能，本项目通过下载 TailwindCLI 离线构建生成静态 CSS (`output.css`)，弃用了会造成页面渲染阻塞的 Tailwind CDN。如果修改了代码里的 tailwind class，只需运行终端脚本 `./build.sh` 即可重新编译生成最新的 `output.css`。
+
 <img width="1440" height="750" alt="image" src="https://github.com/user-attachments/assets/ce86dfb6-f2f6-4acb-84e2-ae3f5ac344e4" />
 
 

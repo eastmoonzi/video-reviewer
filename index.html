@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>视频审查工作台</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="output.css?v=4">
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.6/Sortable.min.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/@mdi/font@7.4.47/css/materialdesignicons.min.css" rel="stylesheet">
@@ -213,6 +213,19 @@
             line-height: 1.6; color: #374151;
         }
         .comparison-column .comp-body .space-y-6 > * + * { margin-top: 1.5rem; }
+        /* Rating textareas (normal & comparison) */
+        #rating-dock textarea.soft-input,
+        #comparison-segment-dock textarea.soft-input {
+            height: 46px;
+            padding: 12px;
+            line-height: 20px;
+            margin-top: 0;
+        }
+        #rating-dock textarea.soft-input:focus,
+        #comparison-segment-dock textarea.soft-input:focus {
+            height: 110px;
+            margin-top: 0;
+        }
     </style>
 </head>
 <body class="h-screen w-screen overflow-hidden flex selection:bg-blue-100 selection:text-blue-900">
@@ -223,16 +236,16 @@
         <div class="px-6 mb-8 flex items-center justify-between">
             <h1 class="text-xl font-bold tracking-tight text-black opacity-90 whitespace-nowrap">审查台</h1>
             <div class="flex gap-2">
-                <button onclick="clearAllTasks()" class="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center text-red-500 hover:scale-105 transition-transform" title="清空任务">
+                <button class="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center text-red-500 hover:scale-105 transition-transform" title="清空任务" id="auto_id_1">
                     <span class="mdi mdi-delete-outline text-lg"></span>
                 </button>
-                <button onclick="sortTasksByNid()" class="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center text-gray-600 hover:scale-105 transition-transform" title="按ID排序">
+                <button class="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center text-gray-600 hover:scale-105 transition-transform" title="按ID排序" id="auto_id_2">
                     <span class="mdi mdi-sort-numeric-ascending text-lg"></span>
                 </button>
-                <button onclick="exportResults()" class="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center text-green-600 hover:scale-105 transition-transform" title="导出结果">
+                <button class="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center text-green-600 hover:scale-105 transition-transform" title="导出结果" id="auto_id_3">
                     <span class="mdi mdi-download text-lg"></span>
                 </button>
-                <button onclick="importTasks()" class="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center text-blue-600 hover:scale-105 transition-transform" title="导入任务">
+                <button class="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center text-blue-600 hover:scale-105 transition-transform" title="导入任务" id="auto_id_4">
                     <span class="mdi mdi-plus text-lg"></span>
                 </button>
             </div>
@@ -241,13 +254,12 @@
         <!-- Workspace Switcher -->
         <div class="px-6 mb-4">
             <div class="flex items-center gap-1.5">
-                <select id="workspace-select" onchange="switchWorkspace(this.value)"
-                    class="flex-1 text-xs font-medium text-gray-700 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 truncate cursor-pointer focus:outline-none focus:border-blue-400 transition-colors">
+                <select id="workspace-select" class="flex-1 text-xs font-medium text-gray-700 bg-white border border-gray-200 rounded-lg px-2.5 py-1.5 truncate cursor-pointer focus:outline-none focus:border-blue-400 transition-colors">
                 </select>
-                <button onclick="createWorkspace()" class="w-7 h-7 rounded-full bg-white shadow-sm flex items-center justify-center text-gray-400 hover:text-blue-500 hover:scale-105 transition-all flex-shrink-0" title="新建工作区">
+                <button class="w-7 h-7 rounded-full bg-white shadow-sm flex items-center justify-center text-gray-400 hover:text-blue-500 hover:scale-105 transition-all flex-shrink-0" title="新建工作区" id="auto_id_5">
                     <span class="mdi mdi-plus text-sm"></span>
                 </button>
-                <button onclick="showWorkspaceMenu()" class="w-7 h-7 rounded-full bg-white shadow-sm flex items-center justify-center text-gray-400 hover:text-gray-600 hover:scale-105 transition-all flex-shrink-0" title="管理工作区">
+                <button class="w-7 h-7 rounded-full bg-white shadow-sm flex items-center justify-center text-gray-400 hover:text-gray-600 hover:scale-105 transition-all flex-shrink-0" title="管理工作区" id="auto_id_6">
                     <span class="mdi mdi-dots-horizontal text-sm"></span>
                 </button>
             </div>
@@ -265,7 +277,7 @@
         <!-- Parse Error Banner -->
         <div id="parse-error-banner" class="hidden mx-2 mb-1 px-3 py-2 rounded-xl bg-amber-50 border border-amber-200 flex items-center justify-between">
             <span class="text-xs text-amber-700"><span class="mdi mdi-alert mr-1"></span><span id="parse-error-count">0</span> 条解析失败</span>
-            <button onclick="repairAllErrors()" class="text-xs text-blue-600 hover:text-blue-800 hover:underline">全部修复</button>
+            <button class="text-xs text-blue-600 hover:text-blue-800 hover:underline" id="auto_id_7">全部修复</button>
         </div>
 
         <!-- Task List: Floating Items -->
@@ -284,25 +296,25 @@
         <!-- Top Toolbar: Compact -->
         <div class="flex items-center justify-center px-6 py-2 z-30 border-b border-gray-100/50">
             <!-- 展开侧边栏按钮（侧边栏收起时显示） -->
-            <button id="sidebar-expand-btn" onclick="toggleSidebar()" class="hidden absolute left-4 w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center text-gray-500 hover:text-black hover:scale-105 transition-all" title="展开审查台">
+            <button id="sidebar-expand-btn" class="hidden absolute left-4 w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center text-gray-500 hover:text-black hover:scale-105 transition-all" title="展开审查台">
                 <span class="mdi mdi-menu text-lg"></span>
             </button>
             <!-- 收起侧边栏按钮（侧边栏展开时显示） -->
-            <button id="sidebar-collapse-btn" onclick="toggleSidebar()" class="absolute left-4 w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center text-gray-400 hover:text-black hover:scale-105 transition-all" title="收起审查台">
+            <button id="sidebar-collapse-btn" class="absolute left-4 w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center text-gray-400 hover:text-black hover:scale-105 transition-all" title="收起审查台">
                 <span class="mdi mdi-arrow-collapse-left text-lg"></span>
             </button>
             <!-- Mode Switcher (Centered) -->
             <div class="shadow-sm ios-segment-bg">
-                <button id="mode-segment" onclick="switchReviewMode('segment')" class="mode-btn active">分段详情</button>
-                <button id="mode-profile" onclick="switchReviewMode('profile')" class="mode-btn">全篇画像</button>
-                <button id="mode-audiovisual" onclick="switchReviewMode('audiovisual')" class="mode-btn">音画质量</button>
+                <button id="mode-segment" class="mode-btn active">分段详情</button>
+                <button id="mode-profile" class="mode-btn">全篇画像</button>
+                <button id="mode-audiovisual" class="mode-btn">音画质量</button>
             </div>
             <!-- Help -->
-            <button onclick="showHelp()" class="absolute right-6 w-7 h-7 rounded-full bg-white/80 hover:bg-white shadow-sm flex items-center justify-center text-gray-400 transition-all">
+            <button class="absolute right-6 w-7 h-7 rounded-full bg-white/80 hover:bg-white shadow-sm flex items-center justify-center text-gray-400 transition-all" id="auto_id_8">
                 <span class="mdi mdi-help text-base"></span>
             </button>
             <!-- Settings -->
-            <button onclick="showSettings()" class="absolute right-16 w-7 h-7 rounded-full bg-white/80 hover:bg-white shadow-sm flex items-center justify-center text-gray-400 transition-all" title="LLM 修复设置">
+            <button class="absolute right-16 w-7 h-7 rounded-full bg-white/80 hover:bg-white shadow-sm flex items-center justify-center text-gray-400 transition-all" title="LLM 修复设置" id="auto_id_9">
                 <span class="mdi mdi-cog text-base"></span>
             </button>
         </div>
@@ -317,7 +329,7 @@
                 </div>
                 <h2 class="text-3xl font-semibold text-gray-900 mb-3 tracking-tight">准备就绪</h2>
                 <p class="text-lg text-gray-500 mb-8 max-w-md font-light">从侧边栏选择任务开始审查</p>
-                <button onclick="importTasks()" class="control-pill px-8 py-3 text-sm font-semibold text-gray-800 hover:bg-white hover:scale-105">
+                <button class="control-pill px-8 py-3 text-sm font-semibold text-gray-800 hover:bg-white hover:scale-105" id="auto_id_10">
                     导入任务
                 </button>
             </div>
@@ -335,7 +347,7 @@
                             <div class="pointer-events-auto">
                                 <!-- Timeline -->
                                 <div class="mb-2">
-                                    <div id="timeline" class="h-1.5 bg-white/30 rounded-full relative cursor-pointer hover:h-2.5 transition-all" onclick="seekToPosition(event)">
+                                    <div id="timeline" class="h-1.5 bg-white/30 rounded-full relative cursor-pointer hover:h-2.5 transition-all">
                                         <div id="timeline-progress" class="h-full bg-white rounded-full absolute left-0" style="width: 0%"></div>
                                         <div id="timeline-segments" class="absolute inset-0"></div>
                                         <div id="timeline-markers" class="absolute inset-0 flex items-center"></div>
@@ -344,24 +356,24 @@
                                 <!-- Buttons row -->
                                 <div class="flex items-center justify-between">
                                     <div class="flex items-center gap-2">
-                                        <button onclick="seekRelative(-5)" class="w-8 h-8 flex items-center justify-center text-white/80 hover:text-white rounded-full hover:bg-white/10 transition-colors">
+                                        <button class="w-8 h-8 flex items-center justify-center text-white/80 hover:text-white rounded-full hover:bg-white/10 transition-colors" id="auto_id_11">
                                             <span class="mdi mdi-rewind-5 text-lg"></span>
                                         </button>
-                                        <button onclick="togglePlay()" class="w-10 h-10 flex items-center justify-center text-white rounded-full bg-white/20 hover:bg-white/30 transition-colors">
+                                        <button class="w-10 h-10 flex items-center justify-center text-white rounded-full bg-white/20 hover:bg-white/30 transition-colors" id="auto_id_12">
                                             <span id="play-btn-icon" class="mdi mdi-play text-2xl ml-0.5"></span>
                                         </button>
-                                        <button onclick="seekRelative(5)" class="w-8 h-8 flex items-center justify-center text-white/80 hover:text-white rounded-full hover:bg-white/10 transition-colors">
+                                        <button class="w-8 h-8 flex items-center justify-center text-white/80 hover:text-white rounded-full hover:bg-white/10 transition-colors" id="auto_id_13">
                                             <span class="mdi mdi-fast-forward-5 text-lg"></span>
                                         </button>
                                     </div>
                                     <span id="time-display" class="text-xs font-medium text-white/70 font-mono">00:00 / 00:00</span>
-                                    <select id="playback-rate" onchange="changePlaybackRate()" class="bg-white/15 text-white text-xs font-semibold rounded-lg px-2 py-1 appearance-none text-center w-16 cursor-pointer border border-white/20 hover:bg-white/25 transition-colors [&>option]:bg-gray-800 [&>option]:text-white">
+                                    <select id="playback-rate" class="bg-white/15 text-white text-xs font-semibold rounded-lg px-2 py-1 appearance-none text-center w-16 cursor-pointer border border-white/20 hover:bg-white/25 transition-colors [&>option]:bg-gray-800 [&>option]:text-white">
                                         <option value="0.5">0.5×</option>
                                         <option value="1" selected>1×</option>
                                         <option value="1.5">1.5×</option>
                                         <option value="2">2×</option>
                                     </select>
-                                    <button id="comparison-mode-btn" onclick="toggleComparisonMode()" class="w-8 h-8 flex items-center justify-center text-white/70 hover:text-white rounded-full hover:bg-white/10 transition-colors" title="对比模式">
+                                    <button id="comparison-mode-btn" class="w-8 h-8 flex items-center justify-center text-white/70 hover:text-white rounded-full hover:bg-white/10 transition-colors" title="对比模式">
                                         <span class="mdi mdi-compare text-lg"></span>
                                     </button>
                                 </div>
@@ -374,7 +386,7 @@
                 <div class="w-[420px] flex flex-col h-full pb-2">
                     <div class="ive-card flex-1 flex flex-col overflow-hidden shadow-xl border border-white/50 bg-white/80 backdrop-blur-md">
                         <!-- 当前任务标题 -->
-                        <div id="current-task-label" class="hidden flex-shrink-0 px-6 pt-3 pb-1 cursor-pointer" onclick="this.querySelector('div').classList.toggle('line-clamp-2')">
+                        <div id="current-task-label" class="hidden flex-shrink-0 px-6 pt-3 pb-1 cursor-pointer">
                             <div class="text-sm font-bold text-gray-800 break-words line-clamp-2"></div>
                         </div>
 
@@ -386,12 +398,12 @@
                         <!-- Content Tabs (Text only) -->
                         <div id="segment-mode-content" class="flex flex-col flex-1 overflow-hidden">
                              <div class="flex px-6 border-b border-gray-100 flex-shrink-0 gap-6">
-                                <button onclick="switchTab('text')" class="tab-btn tab-active py-4 text-sm font-semibold text-black border-b-2 border-black" data-tab="text">文本</button>
-                                <button onclick="switchTab('visual')" class="tab-btn py-4 text-sm font-medium text-gray-400 hover:text-gray-600 transition-colors border-b-2 border-transparent" data-tab="visual">视觉</button>
-                                <button onclick="switchTab('keyframe')" class="tab-btn py-4 text-sm font-medium text-gray-400 hover:text-gray-600 transition-colors border-b-2 border-transparent" data-tab="keyframe">关键帧</button>
+                                <button class="tab-btn tab-active py-4 text-sm font-semibold text-black border-b-2 border-black" data-tab="text" id="auto_id_14">文本</button>
+                                <button class="tab-btn py-4 text-sm font-medium text-gray-400 hover:text-gray-600 transition-colors border-b-2 border-transparent" data-tab="visual" id="auto_id_15">视觉</button>
+                                <button class="tab-btn py-4 text-sm font-medium text-gray-400 hover:text-gray-600 transition-colors border-b-2 border-transparent" data-tab="keyframe" id="auto_id_16">关键帧</button>
                                 <div class="ml-auto flex items-center gap-1.5 self-center">
-                                    <input type="text" id="time-jump-input" placeholder="跳转 1:30" class="w-[80px] text-xs py-1 px-2 rounded-lg bg-gray-100 border-none outline-none focus:bg-gray-200 font-mono transition-colors" onkeydown="if(event.key==='Enter'){jumpToInputTime(); event.preventDefault();}">
-                                    <button onclick="jumpToInputTime()" class="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-black hover:bg-gray-100 transition-colors" title="跳转到指定时间">
+                                    <input type="text" id="time-jump-input" placeholder="跳转 1:30" class="w-[80px] text-xs py-1 px-2 rounded-lg bg-gray-100 border-none outline-none focus:bg-gray-200 font-mono transition-colors">
+                                    <button class="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-black hover:bg-gray-100 transition-colors" title="跳转到指定时间" id="auto_id_17">
                                         <span class="mdi mdi-arrow-right-bold text-sm"></span>
                                     </button>
                                 </div>
@@ -472,10 +484,10 @@
                     </div>
                     <!-- Actions -->
                     <div class="flex items-center gap-2 pl-4 border-l border-gray-200">
-                        <button onclick="skipTask()" class="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-800 hover:bg-black/5 rounded-lg transition-colors">
+                        <button class="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-800 hover:bg-black/5 rounded-lg transition-colors" id="auto_id_18">
                             跳过
                         </button>
-                        <button onclick="submitReview()" class="px-4 py-1.5 bg-black text-white text-xs font-semibold rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-1 active:scale-95">
+                        <button class="px-4 py-1.5 bg-black text-white text-xs font-semibold rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-1 active:scale-95" id="auto_id_19">
                             <span>提交</span>
                             <span class="mdi mdi-arrow-right text-sm"></span>
                         </button>
@@ -565,10 +577,10 @@
                     </div>
                     <!-- Actions -->
                     <div class="flex items-center gap-2 pl-3 border-l border-gray-200 flex-shrink-0">
-                        <button onclick="skipTask()" class="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-800 hover:bg-black/5 rounded-lg transition-colors">
+                        <button class="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-800 hover:bg-black/5 rounded-lg transition-colors" id="auto_id_20">
                             跳过
                         </button>
-                        <button onclick="submitReview()" class="px-4 py-1.5 bg-black text-white text-xs font-semibold rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-1 active:scale-95">
+                        <button class="px-4 py-1.5 bg-black text-white text-xs font-semibold rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-1 active:scale-95" id="auto_id_21">
                             <span>提交</span>
                             <span class="mdi mdi-arrow-right text-sm"></span>
                         </button>
@@ -591,7 +603,7 @@
     <!-- Bottom Rating Dock - Outside main to avoid overflow clipping -->
     <div id="rating-dock" class="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-[100] w-[calc(100%-300px)] max-w-6xl transition-all duration-300">
         <!-- 收起/展开按钮 -->
-        <button id="rating-dock-toggle" onclick="toggleRatingDock()" class="absolute -top-3 left-1/2 -translate-x-1/2 z-10 bg-white shadow-md border border-gray-200 rounded-full w-7 h-7 flex items-center justify-center hover:bg-gray-50 transition-colors">
+        <button id="rating-dock-toggle" class="absolute -top-3 left-1/2 -translate-x-1/2 z-10 bg-white shadow-md border border-gray-200 rounded-full w-7 h-7 flex items-center justify-center hover:bg-gray-50 transition-colors">
             <span class="mdi mdi-chevron-down text-lg text-gray-500"></span>
         </button>
         <div id="rating-dock-body" class="glass-blur shadow-2xl rounded-3xl border border-white/30 ring-1 ring-black/5 p-5">
@@ -645,12 +657,15 @@
                     </div>
                 </div>
                 <div class="flex items-center gap-3 pl-5 border-l-2 border-gray-300 flex-shrink-0">
-                    <button onclick="skipTask()" class="px-5 py-2.5 text-base font-medium text-gray-600 hover:text-gray-900 hover:bg-black/5 rounded-xl transition-colors">跳过</button>
-                    <button onclick="submitReview()" class="px-6 py-2.5 bg-black text-white text-base font-bold rounded-xl hover:bg-gray-800 transition-colors flex items-center gap-2 active:scale-95">
+                    <button class="px-5 py-2.5 text-base font-medium text-gray-600 hover:text-gray-900 hover:bg-black/5 rounded-xl transition-colors" id="auto_id_22">跳过</button>
+                    <button class="px-6 py-2.5 bg-black text-white text-base font-bold rounded-xl hover:bg-gray-800 transition-colors flex items-center gap-2 active:scale-95" id="auto_id_23">
                         <span>提交</span><span class="mdi mdi-arrow-right text-lg"></span>
                     </button>
                 </div>
             </div>
+
+            <!-- Segment comparison rating dock (only in comparison mode) -->
+            <div id="comparison-segment-dock" class="hidden"></div>
 
             <!-- Profile Ratings -->
             <div id="profile-rating-dock" class="hidden flex items-center gap-5">
@@ -734,8 +749,8 @@
                     </div>
                 </div>
                 <div class="flex items-center gap-3 pl-5 border-l-2 border-gray-300 flex-shrink-0">
-                    <button onclick="skipTask()" class="px-5 py-2.5 text-base font-medium text-gray-600 hover:text-gray-900 hover:bg-black/5 rounded-xl transition-colors">跳过</button>
-                    <button onclick="submitReview()" class="px-6 py-2.5 bg-black text-white text-base font-bold rounded-xl hover:bg-gray-800 transition-colors flex items-center gap-2 active:scale-95">
+                    <button class="px-5 py-2.5 text-base font-medium text-gray-600 hover:text-gray-900 hover:bg-black/5 rounded-xl transition-colors" id="auto_id_24">跳过</button>
+                    <button class="px-6 py-2.5 bg-black text-white text-base font-bold rounded-xl hover:bg-gray-800 transition-colors flex items-center gap-2 active:scale-95" id="auto_id_25">
                         <span>提交</span><span class="mdi mdi-arrow-right text-lg"></span>
                     </button>
                 </div>
@@ -814,10 +829,10 @@
                     </div>
                 </div>
                 <div class="flex flex-col items-center gap-2 pl-4 border-l-2 border-gray-300 flex-shrink-0 self-center">
-                    <button onclick="submitReview()" class="px-6 py-2.5 bg-black text-white text-base font-bold rounded-xl hover:bg-gray-800 transition-colors flex items-center gap-2 active:scale-95">
+                    <button class="px-6 py-2.5 bg-black text-white text-base font-bold rounded-xl hover:bg-gray-800 transition-colors flex items-center gap-2 active:scale-95" id="auto_id_26">
                         <span>提交</span><span class="mdi mdi-arrow-right text-lg"></span>
                     </button>
-                    <button onclick="skipTask()" class="px-5 py-1.5 text-sm font-medium text-gray-500 hover:text-gray-900 hover:bg-black/5 rounded-lg transition-colors">跳过</button>
+                    <button class="px-5 py-1.5 text-sm font-medium text-gray-500 hover:text-gray-900 hover:bg-black/5 rounded-lg transition-colors" id="auto_id_27">跳过</button>
                 </div>
             </div>
         </div>
@@ -828,7 +843,7 @@
         <div class="bg-white rounded-lg shadow-xl w-[600px] max-h-[80vh] overflow-hidden">
             <div class="p-4 border-b flex justify-between items-center">
                 <h3 class="text-lg font-bold">导入任务</h3>
-                <button onclick="closeImportModal()" class="text-gray-400 hover:text-gray-600">
+                <button class="text-gray-400 hover:text-gray-600" id="auto_id_28">
                     <span class="mdi mdi-close text-xl"></span>
                 </button>
             </div>
@@ -837,21 +852,21 @@
                     <label class="block text-sm font-medium text-gray-700 mb-2">选择文件</label>
                 </div>
                 <div id="import-file-section">
-                    <input type="file" id="import-file" accept=".xlsx,.xls,.jsonl" multiple class="hidden" onchange="onImportFileChange(this)">
-                    <button onclick="document.getElementById('import-file').click()" class="w-full py-3 px-4 border-2 border-dashed border-gray-300 rounded-lg text-sm text-gray-500 hover:border-blue-400 hover:text-blue-500 transition-colors">
+                    <input type="file" id="import-file" accept=".xlsx,.xls,.jsonl" multiple class="hidden">
+                    <button class="w-full py-3 px-4 border-2 border-dashed border-gray-300 rounded-lg text-sm text-gray-500 hover:border-blue-400 hover:text-blue-500 transition-colors" id="auto_id_29">
                         <span class="mdi mdi-plus-circle-outline mr-1"></span>点击选择文件（可多次添加不同目录的文件）
                     </button>
                     <div id="import-file-list" class="mt-2 space-y-1"></div>
                     <p class="mt-2 text-xs text-gray-500">
                         支持格式：Excel (.xlsx/.xls) 或 JSONL (.jsonl)<br>
                         JSONL 可多次添加不同文件，自动按视频URL合并，每个文件视为一个模型<br>
-                        <a href="#" onclick="showFormatHelp()" class="text-blue-500 hover:underline">查看格式说明</a>
+                        <a href="#" class="text-blue-500 hover:underline" id="auto_id_30">查看格式说明</a>
                     </p>
                 </div>
             </div>
             <div class="p-4 border-t bg-gray-50 flex justify-end gap-2">
-                <button onclick="closeImportModal()" class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">取消</button>
-                <button onclick="confirmImport()" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">确认导入</button>
+                <button class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300" id="auto_id_31">取消</button>
+                <button class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600" id="auto_id_32">确认导入</button>
             </div>
         </div>
     </div>
@@ -861,7 +876,7 @@
         <div class="bg-white rounded-lg shadow-xl w-[500px] max-h-[80vh] overflow-auto">
             <div class="p-4 border-b flex justify-between items-center">
                 <h3 class="text-lg font-bold">使用帮助</h3>
-                <button onclick="closeHelpModal()" class="text-gray-400 hover:text-gray-600">
+                <button class="text-gray-400 hover:text-gray-600" id="auto_id_33">
                     <span class="mdi mdi-close text-xl"></span>
                 </button>
             </div>
@@ -897,35 +912,31 @@
         <div class="bg-white rounded-2xl shadow-xl w-[420px] p-6">
             <div class="flex justify-between items-center mb-5">
                 <h3 class="text-base font-bold text-gray-800">LLM 修复设置</h3>
-                <button onclick="closeSettingsModal()" class="w-7 h-7 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-500">
+                <button class="w-7 h-7 rounded-full bg-gray-100 hover:bg-gray-200 flex items-center justify-center text-gray-500" id="auto_id_34">
                     <span class="mdi mdi-close text-sm"></span>
                 </button>
             </div>
             <div class="space-y-4">
                 <label class="flex items-center gap-2 cursor-pointer select-none">
-                    <input id="llm-use-default" type="checkbox" onchange="toggleDefaultLLM(this.checked)"
-                           class="w-4 h-4 rounded accent-blue-500" />
+                    <input id="llm-use-default" type="checkbox" class="w-4 h-4 rounded accent-blue-500"/>
                     <span class="text-sm text-gray-700">使用默认 API（DeepSeek）</span>
                 </label>
                 <div>
                     <label class="block text-xs font-medium text-gray-600 mb-1">API Base URL</label>
-                    <input id="llm-base-url" type="text" placeholder="https://api.deepseek.com"
-                           class="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                    <input id="llm-base-url" type="text" placeholder="https://api.deepseek.com" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-300"/>
                 </div>
                 <div>
                     <label class="block text-xs font-medium text-gray-600 mb-1">API Key</label>
-                    <input id="llm-api-key" type="password" placeholder="sk-..."
-                           class="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                    <input id="llm-api-key" type="password" placeholder="sk-..." class="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-300"/>
                 </div>
                 <div>
                     <label class="block text-xs font-medium text-gray-600 mb-1">模型名称</label>
-                    <input id="llm-model" type="text" placeholder="deepseek-chat"
-                           class="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-300" />
+                    <input id="llm-model" type="text" placeholder="deepseek-chat" class="w-full px-3 py-2 text-sm border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-300"/>
                 </div>
             </div>
             <div class="flex justify-end gap-2 mt-6">
-                <button onclick="closeSettingsModal()" class="px-4 py-2 text-sm text-gray-600 bg-gray-100 rounded-xl hover:bg-gray-200">取消</button>
-                <button onclick="saveLLMSettings()" class="px-4 py-2 text-sm text-white bg-blue-500 rounded-xl hover:bg-blue-600">保存</button>
+                <button class="px-4 py-2 text-sm text-gray-600 bg-gray-100 rounded-xl hover:bg-gray-200" id="auto_id_35">取消</button>
+                <button class="px-4 py-2 text-sm text-white bg-blue-500 rounded-xl hover:bg-blue-600" id="auto_id_36">保存</button>
             </div>
         </div>
     </div>
@@ -938,11 +949,10 @@
             </div>
             <div id="repair-progress-text" class="text-sm text-gray-700 mb-1">正在修复...</div>
             <div id="repair-progress-sub" class="text-xs text-gray-400"></div>
-            <button id="repair-confirm-btn" onclick="closeRepairModal()"
-                    class="hidden mt-5 px-5 py-2 text-sm text-white bg-blue-500 rounded-xl hover:bg-blue-600">确认</button>
+            <button id="repair-confirm-btn" class="hidden mt-5 px-5 py-2 text-sm text-white bg-blue-500 rounded-xl hover:bg-blue-600">确认</button>
         </div>
     </div>
 
-    <script src="app.js"></script>
+    <script type="module" src="js/main.js"></script>
 </body>
 </html>

@@ -1,0 +1,252 @@
+// ============================================
+function saveToLocalStorage() {
+    const wsId = state.currentWorkspaceId;
+    if (!wsId) return;
+    localStorage.setItem(getWorkspaceKey(wsId, 'segment-tasks'), JSON.stringify(state.segmentTasks));
+    localStorage.setItem(getWorkspaceKey(wsId, 'segment-index'), state.segmentTaskIndex);
+    localStorage.setItem(getWorkspaceKey(wsId, 'profile-tasks'), JSON.stringify(state.profileTasks));
+    localStorage.setItem(getWorkspaceKey(wsId, 'profile-index'), state.profileTaskIndex);
+    localStorage.setItem(getWorkspaceKey(wsId, 'audiovisual-tasks'), JSON.stringify(state.audiovisualTasks));
+    localStorage.setItem(getWorkspaceKey(wsId, 'audiovisual-index'), state.audiovisualTaskIndex);
+}
+
+function loadFromLocalStorage() {
+    const wsId = state.currentWorkspaceId;
+    if (!wsId) return;
+    try {
+        const segmentTasks = localStorage.getItem(getWorkspaceKey(wsId, 'segment-tasks'));
+        const segmentIndex = localStorage.getItem(getWorkspaceKey(wsId, 'segment-index'));
+        if (segmentTasks) {
+            state.segmentTasks = JSON.parse(segmentTasks);
+        }
+        if (segmentIndex !== null) {
+            state.segmentTaskIndex = parseInt(segmentIndex);
+        }
+
+        const profileTasks = localStorage.getItem(getWorkspaceKey(wsId, 'profile-tasks'));
+        const profileIndex = localStorage.getItem(getWorkspaceKey(wsId, 'profile-index'));
+        if (profileTasks) {
+            state.profileTasks = JSON.parse(profileTasks);
+        }
+        if (profileIndex !== null) {
+            state.profileTaskIndex = parseInt(profileIndex);
+        }
+
+        const audiovisualTasks = localStorage.getItem(getWorkspaceKey(wsId, 'audiovisual-tasks'));
+        const audiovisualIndex = localStorage.getItem(getWorkspaceKey(wsId, 'audiovisual-index'));
+        if (audiovisualTasks) {
+            state.audiovisualTasks = JSON.parse(audiovisualTasks);
+        }
+        if (audiovisualIndex !== null) {
+            state.audiovisualTaskIndex = parseInt(audiovisualIndex);
+        }
+
+        setTimeout(() => {
+            const currentTasks = getTasks();
+            const currentIndex = getTaskIndex();
+            if (currentIndex >= 0 && currentIndex < currentTasks.length) {
+                selectTask(currentIndex);
+            }
+        }, 150);
+    } catch (e) {
+        console.error('加载本地存储失败:', e);
+    }
+}
+
+// ============================================
+// 帮助
+// ============================================
+function showHelp() {
+    document.getElementById('help-modal').classList.remove('hidden');
+    document.getElementById('help-modal').classList.add('flex');
+}
+
+function closeHelpModal() {
+    document.getElementById('help-modal').classList.add('hidden');
+    document.getElementById('help-modal').classList.remove('flex');
+}
+
+function showFormatHelp() {
+    closeImportModal();
+    showHelp();
+}
+
+// ============================================
+// 侧边栏折叠
+// ============================================
+function toggleSidebar() {
+    const sidebar = document.getElementById('task-sidebar');
+    const toggleBtn = document.getElementById('sidebar-toggle');
+    
+    sidebar.classList.toggle('collapsed');
+    toggleBtn.classList.toggle('collapsed');
+    
+    // 保存状态到本地存储
+    const isCollapsed = sidebar.classList.contains('collapsed');
+    localStorage.setItem('sidebar-collapsed', isCollapsed);
+}
+
+// 初始化时恢复侧边栏状态
+function restoreSidebarState() {
+    const isCollapsed = localStorage.getItem('sidebar-collapsed') === 'true';
+    if (isCollapsed) {
+        document.getElementById('task-sidebar').classList.add('collapsed');
+        document.getElementById('sidebar-toggle').classList.add('collapsed');
+    }
+}
+
+// ============================================
+// 评分面板折叠 (Floating Sheet Logic)
+// ============================================
+function toggleRatingPanel() {
+    const section = document.getElementById('rating-section');
+    const icon = document.getElementById('rating-toggle-icon');
+    
+    // Check if currently expanded (translated to 0)
+    // The default class has translate-y-[calc(100%-80px)] which means collapsed
+    // We toggle a class 'expanded' which sets translate-y-0
+    
+    const isExpanded = section.classList.contains('expanded');
+    
+    if (isExpanded) {
+        // Collapse
+        section.classList.remove('expanded');
+        section.classList.remove('translate-y-0');
+        section.classList.add('translate-y-[calc(100%-80px)]');
+        
+        icon.style.transform = 'rotate(0deg)'; // Arrow points up (to expand)
+        localStorage.setItem('rating-panel-collapsed', 'true');
+    } else {
+        // Expand
+        section.classList.add('expanded');
+        section.classList.remove('translate-y-[calc(100%-80px)]');
+        section.classList.add('translate-y-0');
+        
+        icon.style.transform = 'rotate(180deg)'; // Arrow points down (to collapse)
+        localStorage.setItem('rating-panel-collapsed', 'false');
+    }
+}
+
+// 初始化时恢复评分面板状态
+function restoreRatingPanelState() {
+    const isCollapsed = localStorage.getItem('rating-panel-collapsed') === 'true';
+    const section = document.getElementById('rating-section');
+    const icon = document.getElementById('rating-toggle-icon');
+    
+    if (!section) return;
+
+    if (isCollapsed) {
+        section.classList.remove('expanded');
+        section.classList.remove('translate-y-0');
+        section.classList.add('translate-y-[calc(100%-80px)]');
+        if (icon) icon.style.transform = 'rotate(0deg)';
+    } else {
+        section.classList.add('expanded');
+        section.classList.remove('translate-y-[calc(100%-80px)]');
+        section.classList.add('translate-y-0');
+        if (icon) icon.style.transform = 'rotate(180deg)';
+    }
+}
+
+// ============================================
+// 键盘快捷键
+// ============================================
+function handleKeyboard(e) {
+    // 忽略输入框内的按键
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    
+    switch (e.code) {
+        case 'Space':
+            e.preventDefault();
+            togglePlay();
+            break;
+        case 'ArrowLeft':
+            seekRelative(-5);
+            break;
+        case 'ArrowRight':
+            seekRelative(5);
+            break;
+        case 'Enter':
+            submitReview();
+            break;
+        case 'Tab':
+            e.preventDefault();
+            const tabs = ['text', 'visual', 'keyframe'];
+            const currentIndex = tabs.indexOf(state.currentTab);
+            const nextIndex = (currentIndex + 1) % tabs.length;
+            switchTab(tabs[nextIndex]);
+            break;
+        case 'Digit1':
+        case 'Digit2':
+        case 'Digit3':
+            // 1-3分评分
+            const rating = parseInt(e.code.replace('Digit', ''));
+            setRating(state.currentTab, rating);
+            break;
+    }
+}
+
+// ============================================
+// 示例数据（用于演示）
+// ============================================
+function loadDemoData() {
+    const demoTasks = [
+        {
+            id: "demo-001",
+            video_url: "https://www.w3schools.com/html/mov_bbb.mp4",
+            model_output: {
+                segments: [
+                    { start: 0, end: 3, label: "开场", description: "大象出现" },
+                    { start: 3, end: 7, label: "主体", description: "兔子和小鸟互动" },
+                    { start: 7, end: 10, label: "结尾", description: "场景结束" }
+                ],
+                text_understanding: {
+                    summary: "这是一个卡通动画短片",
+                    entities: ["大象", "兔子", "小鸟"],
+                    sentiment: "positive",
+                    themes: ["友谊", "自然"]
+                },
+                visual_understanding: {
+                    scene_type: "户外自然场景",
+                    objects_detected: ["大象", "兔子", "蝴蝶", "树木", "草地"],
+                    color_palette: ["绿色", "蓝色", "棕色"],
+                    motion_intensity: "medium"
+                },
+                keyframes: [
+                    { time: 1, label: "大象特写" },
+                    { time: 5, label: "兔子出场" },
+                    { time: 9, label: "结束画面" }
+                ]
+            }
+        },
+        {
+            id: "demo-002", 
+            video_url: "https://www.w3schools.com/html/movie.mp4",
+            model_output: {
+                segments: [
+                    { start: 0, end: 6, label: "完整片段", description: "Bear介绍" }
+                ],
+                text_understanding: {
+                    summary: "Big Buck Bunny 片段",
+                    entities: ["Bear"],
+                    sentiment: "neutral"
+                },
+                visual_understanding: {
+                    scene_type: "动画场景",
+                    objects_detected: ["熊"],
+                    color_palette: ["棕色", "绿色"]
+                },
+                keyframes: [
+                    { time: 3, label: "主画面" }
+                ]
+            }
+        }
+    ];
+
+    processImportData(demoTasks);
+}
+
+// 在控制台暴露demo函数方便测试
+window.loadDemoData = loadDemoData;
+
+// ============================================

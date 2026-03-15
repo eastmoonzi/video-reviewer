@@ -1,0 +1,30 @@
+# OS cruft
+.DS_Store
+
+# Editors/IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Dependencies
+node_modules/
+
+# Build artifacts
+output.css
+*.css.map
+tailwindcss/
+dist/
+build/
+*.log
+
+# Python
+__pycache__/
+*.py[cod]
+
+# Temp files
+tmp/
+temp/
+*.tmp
+*.bak
+*.orig

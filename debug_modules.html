@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html>
+<head><title>Module Debug - Individual</title></head>
+<body>
+<h1>Individual Module Loading Debug</h1>
+<pre id="log"></pre>
+<script>
+  const log = document.getElementById('log');
+  function addLog(msg) {
+    log.textContent += msg + '\n';
+    console.log(msg);
+  }
+
+  const cb = Date.now();
+  const modules = [
+    './js/state.js',
+    './js/scoring.js',
+    './js/storage.js',
+    './js/render.js',
+    './js/video.js',  
+    './js/tabs.js',
+    './js/panels.js',
+    './js/shortcuts.js',
+    './js/api.js',
+    './js/parser.js',
+    './js/export.js',
+    './js/compare.js',
+    './js/demo.js',
+    './js/modes.js',
+    './js/task.js',
+    './js/events.js',
+    './js/main.js'
+  ];
+
+  async function testModules() {
+    for (const mod of modules) {
+      try {
+        await import(mod + '?cb=' + cb);
+        addLog('OK: ' + mod);
+      } catch (e) {
+        addLog('FAIL: ' + mod + ' - ' + e.message);
+        break;
+      }
+    }
+    addLog('Done.');
+  }
+  testModules();
+</script>
+</body>
+</html>
