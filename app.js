@@ -4793,24 +4793,38 @@ function generateAudiovisualHTML(avData, autoEval) {
         return { score: d['得分'] ?? null, reason: d['理由'] || '', timeScore: d['time得分'] ?? null, timeReason: d['time理由'] || '' };
     }
 
-    // 支持 audiovisual_integration 和 visual_integration 两种字段名
+    // 1. 总体评估摘要
+    if (ev && (ev['总体评分'] || ev['总体评价'])) {
+        const summary = (ev['总体评分'] ? `<b>${escapeHTML(ev['总体评分'])}</b> ` : '') + (ev['总体评价'] ? escapeHTML(ev['总体评价']) : '');
+        sections.push(`<div class="p-3 rounded-xl bg-blue-50 border border-blue-100 text-sm text-blue-800 leading-relaxed mb-4">
+            <span class="text-[10px] font-bold text-blue-400 uppercase mr-1">自动评估总结</span>${summary}
+        </div>`);
+    }
+
+    // 2. 总体质量
     const avIntegration = avData.audiovisual_integration || avData.visual_integration;
     if (avIntegration?.detail_quality) {
         const dq = avIntegration.detail_quality;
         sections.push(renderAVSection('总体质量', 'mdi-tune-variant', dq.level, dq.desc, false, getEval(ev?.audiovisual_integration?.detail_quality || ev?.visual_integration?.detail_quality)));
+    } else {
+        sections.push(renderAVSection('总体质量', 'mdi-tune-variant', '无', null, false, getEval(ev?.audiovisual_integration?.detail_quality || ev?.visual_integration?.detail_quality)));
     }
 
+    // 3. 加工元素
     const vpe = avData.vision_quality?.visual_processing_elements;
     if (vpe && vpe.length > 0) {
         const items = vpe.map(el => {
             const timeStr = Array.isArray(el.time) ? `${formatTimeLink(el.time[0])}→${formatTimeLink(el.time[1])}` : '';
             return `<b>${escapeHTML(el.tag || '-')}</b>：${linkifyTime(escapeHTML(el.desc || ''))}` +
-                (el.position ? ` <span class="text-gray-400">[${escapeHTML(el.position)}]</span>` : '') +
+                (el.position ? ` <span class="text-gray-400">[${escapeHTML(el.position)}${el.area_ratio ? ', ' + escapeHTML(el.area_ratio) : ''}]</span>` : '') +
                 (timeStr ? ` <span class="text-gray-400 font-mono text-[11px]">${timeStr}</span>` : '');
         }).join('<br>');
         sections.push(renderAVSection('加工元素', 'mdi-image-filter-center-focus', null, items, true, getEval(ev?.vision_quality?.visual_processing_elements)));
+    } else {
+        sections.push(renderAVSection('加工元素', 'mdi-image-filter-center-focus', '无', null, false, getEval(ev?.vision_quality?.visual_processing_elements)));
     }
 
+    // 4. 构图
     const comp = avData.vision_quality?.composition;
     if (comp && comp.length > 0) {
         const items = comp.map(el => {
@@ -4820,26 +4834,76 @@ function generateAudiovisualHTML(avData, autoEval) {
                 (timeStr ? ` <span class="text-gray-400 font-mono text-[11px]">${timeStr}</span>` : '');
         }).join('<br>');
         sections.push(renderAVSection('构图', 'mdi-grid', null, items, true, getEval(ev?.vision_quality?.composition)));
+    } else {
+        sections.push(renderAVSection('构图', 'mdi-grid', '无', null, false, getEval(ev?.vision_quality?.composition)));
     }
 
+    // 5. 人物
     const man = avData.content_subject?.man_negative_content;
     if (man && man.length > 0) {
         sections.push(renderAVSection('人物', 'mdi-account', null, man.map(el => renderAVListItem(el)).join('<br>'), true, getEval(ev?.content_subject?.man_negative_content)));
+    } else {
+        sections.push(renderAVSection('人物', 'mdi-account', '无', null, false, getEval(ev?.content_subject?.man_negative_content)));
     }
 
+    // 6. 生物
     const creature = avData.content_subject?.creature_negative_content;
     if (creature && creature.length > 0) {
         sections.push(renderAVSection('生物', 'mdi-paw', null, creature.map(el => renderAVListItem(el)).join('<br>'), true, getEval(ev?.content_subject?.creature_negative_content)));
+    } else {
+        sections.push(renderAVSection('生物', 'mdi-paw', '无', null, false, getEval(ev?.content_subject?.creature_negative_content)));
     }
 
+    // 7. 信息属性
+    const infoAttr = avData.information?.information_attributes;
+    if (infoAttr && infoAttr.length > 0) {
+        const items = infoAttr.map(el =>
+            typeof el === 'string' ? escapeHTML(el) : renderAVListItem(el)
+        ).join('<br>');
+        sections.push(renderAVSection('信息属性', 'mdi-information', null, items, true, getEval(ev?.information?.information_attributes)));
+    } else {
+        sections.push(renderAVSection('信息属性', 'mdi-information', '无', null, false, getEval(ev?.information?.information_attributes)));
+    }
+
+    // 8. 真实性存疑
     const qi = avData.information?.questionable_info;
     if (qi) {
         sections.push(renderAVSection('真实性存疑', 'mdi-alert-circle', qi.has_issue ? '是' : '否', qi.desc !== '无' ? qi.desc : null, false, getEval(ev?.information?.questionable_info)));
     }
 
+    // 9. 地理位置
+    const geo = avData.information?.geographic_info;
+    if (geo) {
+        sections.push(renderAVSection('地理位置', 'mdi-map-marker', geo.has_info ? '有' : '无', geo.desc !== '无' ? geo.desc : null, false, getEval(ev?.information?.geographic_info)));
+    }
+
+    // 10. 时效性
+    const tl = avData.information?.timeliness_info;
+    if (tl) {
+        sections.push(renderAVSection('时效性', 'mdi-clock', tl.has_info ? '有' : '无', tl.desc !== '无' ? tl.desc : null, false, getEval(ev?.information?.timeliness_info)));
+    }
+
+    // 11. 低俗意图
     const vi = avData.intent?.vulgar_intent;
     if (vi) {
-        sections.push(renderAVSection('低俗意图', 'mdi-eye-off', vi.has_intent ? '是' : '否', vi.desc !== '无' ? vi.desc : null, false, getEval(ev?.intent?.vulgar_intent)));
+        sections.push(renderAVSection('低俗/软色情意图', 'mdi-eye-off', vi.has_intent ? '是' : '否', vi.desc !== '无' ? vi.desc : null, false, getEval(ev?.intent?.vulgar_intent)));
+    }
+
+    // 12. 营销与引流意图
+    const pi = avData.intent?.promotional_intent;
+    if (pi && pi.length > 0) {
+        const items = pi.map(el => renderAVListItem(el)).join('<br>');
+        sections.push(renderAVSection('营销与引流意图', 'mdi-bullhorn', null, items, true, getEval(ev?.intent?.promotional_intent)));
+    } else {
+        sections.push(renderAVSection('营销与引流意图', 'mdi-bullhorn', '无', null, false, getEval(ev?.intent?.promotional_intent)));
+    }
+
+    // 13. 违背社会道德
+    const iv = avData.values?.immoral_values;
+    if (iv) {
+        const catStr = iv.category && iv.category.length > 0 ? iv.category.join('、') : '';
+        sections.push(renderAVSection('违背社会道德', 'mdi-scale-balance', iv.has_issue ? '是' : '否',
+            (catStr ? `分类：${catStr}` : '') + (iv.desc !== '无' ? (catStr ? '；' : '') + iv.desc : '') || null, false, getEval(ev?.values?.immoral_values)));
     }
 
     return sections.join('');
