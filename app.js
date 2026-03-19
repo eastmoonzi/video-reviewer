@@ -2565,7 +2565,7 @@ function parseExcel(arrayBuffer) {
         // 检查第一行数据是否像 JSON 内容（含 CoT 包裹）
         const firstVal = (dataRows[0]?.[col] || '').toString().trim();
         const looksLikeJson = /^[\[{"`']/.test(firstVal) || firstVal.startsWith('```')
-            || /^<(?:think|thinking|reasoning|thought)/i.test(firstVal);
+            || /^<(?:think|thinking|reasoning|thought|json_output|output)/i.test(firstVal);
         if (looksLikeJson) {
             finalModelCols.push({ col, name: header });
         }
