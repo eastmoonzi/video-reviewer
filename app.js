@@ -1986,7 +1986,7 @@ function convertJsonlToTask(obj, index) {
     }
 
     // 检测是否为基础音画质量格式
-    if (response.vision_quality || response.audiovisual_integration || response.content_subject) {
+    if (response.vision_quality || response.audiovisual_integration || response.visual_integration || response.content_subject) {
         const avOutput = { audiovisual: response };
         task.model_output = avOutput;
         task.model_outputs = [avOutput];
@@ -2742,7 +2742,8 @@ function normalizeModelOutput(data) {
     }
     
     // 处理基础音画质量数据
-    if (data.vision_quality || data.audiovisual_integration || data.content_subject) {
+    // 支持 audiovisual_integration 和 visual_integration 两种字段名
+    if (data.vision_quality || data.audiovisual_integration || data.visual_integration || data.content_subject) {
         output.audiovisual = data;
     }
 
@@ -2750,7 +2751,7 @@ function normalizeModelOutput(data) {
     if (output.segments || output.profile || output.audiovisual) {
         return output;
     }
-    
+
     return data;
 }
 
@@ -3519,13 +3520,15 @@ function renderAudiovisualContent() {
     }
 
     // 1. 总体质量
-    if (avData.audiovisual_integration?.detail_quality) {
-        const dq = avData.audiovisual_integration.detail_quality;
+    // 支持 audiovisual_integration 和 visual_integration 两种字段名
+    const avIntegration = avData.audiovisual_integration || avData.visual_integration;
+    if (avIntegration?.detail_quality) {
+        const dq = avIntegration.detail_quality;
         sections.push(renderAVSection('总体质量', 'mdi-tune-variant', dq.level, dq.desc, false,
-            getEval(ev?.audiovisual_integration?.detail_quality)));
+            getEval(ev?.audiovisual_integration?.detail_quality || ev?.visual_integration?.detail_quality)));
     } else {
         sections.push(renderAVSection('总体质量', 'mdi-tune-variant', '无', null, false,
-            getEval(ev?.audiovisual_integration?.detail_quality)));
+            getEval(ev?.audiovisual_integration?.detail_quality || ev?.visual_integration?.detail_quality)));
     }
 
     // 2. 加工元素
@@ -4012,7 +4015,7 @@ loadReviewForCurrentGroup = function() {
             const ev = task.autoEval;
             if (ev) {
                 const evalMap = {
-                    overall_quality:          ev.audiovisual_integration?.detail_quality,
+                    overall_quality:          ev.audiovisual_integration?.detail_quality || ev.visual_integration?.detail_quality,
                     processing_elements:      ev.vision_quality?.visual_processing_elements,
                     processing_elements_time: ev.vision_quality?.visual_processing_elements,
                     composition:              ev.vision_quality?.composition,
@@ -4370,7 +4373,8 @@ normalizeModelOutput = function(data) {
     }
     
     // 处理基础音画质量数据
-    if (data.vision_quality || data.audiovisual_integration || data.content_subject) {
+    // 支持 audiovisual_integration 和 visual_integration 两种字段名
+    if (data.vision_quality || data.audiovisual_integration || data.visual_integration || data.content_subject) {
         output.audiovisual = data;
     }
 
@@ -4789,9 +4793,11 @@ function generateAudiovisualHTML(avData, autoEval) {
         return { score: d['得分'] ?? null, reason: d['理由'] || '', timeScore: d['time得分'] ?? null, timeReason: d['time理由'] || '' };
     }
 
-    if (avData.audiovisual_integration?.detail_quality) {
-        const dq = avData.audiovisual_integration.detail_quality;
-        sections.push(renderAVSection('总体质量', 'mdi-tune-variant', dq.level, dq.desc, false, getEval(ev?.audiovisual_integration?.detail_quality)));
+    // 支持 audiovisual_integration 和 visual_integration 两种字段名
+    const avIntegration = avData.audiovisual_integration || avData.visual_integration;
+    if (avIntegration?.detail_quality) {
+        const dq = avIntegration.detail_quality;
+        sections.push(renderAVSection('总体质量', 'mdi-tune-variant', dq.level, dq.desc, false, getEval(ev?.audiovisual_integration?.detail_quality || ev?.visual_integration?.detail_quality)));
     }
 
     const vpe = avData.vision_quality?.visual_processing_elements;
