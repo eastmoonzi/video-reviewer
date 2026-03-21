@@ -1759,6 +1759,20 @@ function skipTask() {
     goToNextIncomplete();
 }
 
+function prevTask() {
+    const tasks = getTasks();
+    const cur = getTaskIndex();
+    if (cur > 0) selectTask(cur - 1);
+}
+window.prevTask = prevTask;
+
+function nextTask() {
+    const tasks = getTasks();
+    const cur = getTaskIndex();
+    if (cur < tasks.length - 1) selectTask(cur + 1);
+}
+window.nextTask = nextTask;
+
 function goToNextIncomplete() {
     const tasks = getTasks();
     const startIndex = getTaskIndex();
