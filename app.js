@@ -97,6 +97,10 @@ const state = {
     taskSearch: ''
 };
 
+// 停靠模式 & 列宽持久化键
+const COL_WIDTHS_KEY = 'vrp_col_widths';
+const DOCK_MODE_KEY  = 'vrp_dock_mode'; // 'bottom' | 'right'
+
 // 获取当前模式的任务列表
 function getTasks() {
     if (state.reviewMode === 'segment') return state.segmentTasks;
@@ -187,6 +191,7 @@ document.addEventListener('DOMContentLoaded', () => {
     restoreRatingPanelState();
     restoreReviewMode();
     loadLLMSettings();
+    initColumnLayout();
 
     // 备注输入实时保存（防抖 500ms）
     let _noteSaveTimer = null;
@@ -4679,26 +4684,131 @@ window.switchReviewMode = switchReviewMode;
 
 // 打分板收起/展开
 function toggleRatingDock() {
+    const mode = localStorage.getItem(DOCK_MODE_KEY) || 'bottom';
+    if (mode === 'right') {
+        const col      = document.getElementById('rating-right-col');
+        const divider2 = document.getElementById('col-divider-2');
+        const saved    = JSON.parse(localStorage.getItem(COL_WIDTHS_KEY) || '{}');
+        const isCollapsed = col.style.width === '0px';
+        col.style.width = isCollapsed ? (saved.rating || 300) + 'px' : '0px';
+        divider2.style.visibility = isCollapsed ? '' : 'hidden';
+        return;
+    }
     const dock = document.getElementById('rating-dock');
     const body = document.getElementById('rating-dock-body');
     const toggle = document.getElementById('rating-dock-toggle');
     const icon = toggle.querySelector('.mdi');
-    const collapsed = !body.classList.contains('hidden');
-    if (collapsed) {
-        // 收起
-        body.classList.add('hidden');
+    const isExpanded = !body.classList.contains('dock-collapsed');
+    if (isExpanded) {
+        // 收起：隐藏评分面板，保留工具栏
+        body.classList.add('dock-collapsed');
         dock.classList.remove('w-[calc(100%-300px)]', 'max-w-6xl');
         dock.classList.add('w-auto');
-        icon.classList.replace('mdi-chevron-down', 'mdi-chevron-up');
+        icon.classList.replace('mdi-window-minimize', 'mdi-window-maximize');
+        toggle.title = '展开评分面板';
     } else {
         // 展开
-        body.classList.remove('hidden');
+        body.classList.remove('dock-collapsed');
         dock.classList.remove('w-auto');
         dock.classList.add('w-[calc(100%-300px)]', 'max-w-6xl');
-        icon.classList.replace('mdi-chevron-up', 'mdi-chevron-down');
+        icon.classList.replace('mdi-window-maximize', 'mdi-window-minimize');
+        toggle.title = '收起评分面板';
     }
 }
 window.toggleRatingDock = toggleRatingDock;
+
+// ============================================
+// 列宽拖拽 & 停靠模式切换
+// ============================================
+
+function initColumnLayout() {
+    // 恢复列宽
+    const saved = JSON.parse(localStorage.getItem(COL_WIDTHS_KEY) || '{}');
+    if (saved.content) document.getElementById('content-col').style.width = saved.content + 'px';
+    if (saved.rating)  document.getElementById('rating-right-col').style.width = saved.rating + 'px';
+
+    // 绑定分割线拖拽
+    initColDivider('col-divider-1', 'content-col', 'content', true);  
+    initColDivider('col-divider-2', 'rating-right-col', 'rating', true);
+
+    // 恢复停靠模式
+    const mode = localStorage.getItem(DOCK_MODE_KEY) || 'bottom';
+    if (mode === 'right') applyRatingDockMode('right', false);
+}
+
+function initColDivider(dividerId, targetColId, saveKey, fromRight) {
+    const divider   = document.getElementById(dividerId);
+    const targetCol = document.getElementById(targetColId);
+    if (!divider || !targetCol) return;
+
+    divider.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        divider.classList.add('resizing');
+        const startX     = e.clientX;
+        const startWidth = targetCol.getBoundingClientRect().width;
+
+        const onMove = (ev) => {
+            const dx = ev.clientX - startX;
+            const newWidth = Math.max(160, fromRight ? startWidth - dx : startWidth + dx);
+            targetCol.style.width = newWidth + 'px';
+            const s = JSON.parse(localStorage.getItem(COL_WIDTHS_KEY) || '{}');
+            s[saveKey] = Math.round(newWidth);
+            localStorage.setItem(COL_WIDTHS_KEY, JSON.stringify(s));
+        };
+        const onUp = () => {
+            divider.classList.remove('resizing');
+            document.removeEventListener('mousemove', onMove);
+            document.removeEventListener('mouseup', onUp);
+        };
+        document.addEventListener('mousemove', onMove);
+        document.addEventListener('mouseup', onUp);
+    });
+}
+
+function switchRatingDockMode() {
+    const current = localStorage.getItem(DOCK_MODE_KEY) || 'bottom';
+    applyRatingDockMode(current === 'bottom' ? 'right' : 'bottom', true);
+}
+window.switchRatingDockMode = switchRatingDockMode;
+
+function applyRatingDockMode(mode, persist) {
+    const dockBody       = document.getElementById('rating-dock-body');
+    const ratingDock     = document.getElementById('rating-dock');
+    const ratingRightCol = document.getElementById('rating-right-col');
+    const divider2       = document.getElementById('col-divider-2');
+    const videoCol       = document.getElementById('video-col');
+    const toggleBtn      = document.getElementById('rating-dock-side-toggle');
+
+    if (mode === 'right') {
+        ratingDock.classList.add('hidden');
+        ratingRightCol.appendChild(dockBody);
+        ratingRightCol.classList.remove('hidden');
+        ratingRightCol.classList.add('flex');
+        divider2.classList.remove('hidden');
+        videoCol.classList.remove('pb-28');
+        document.body.classList.add('dock-right');
+        if (toggleBtn) {
+            toggleBtn.className = 'self-end m-1 w-6 h-6 bg-white/80 backdrop-blur-sm border border-white/60 shadow-sm rounded-full flex items-center justify-center text-gray-400 hover:text-gray-700 transition-colors cursor-pointer flex-shrink-0';
+            toggleBtn.querySelector('span').className = 'mdi mdi-dock-bottom text-xs';
+            toggleBtn.title = '切换到底部停靠';
+        }
+    } else {
+        ratingDock.appendChild(dockBody);
+        ratingDock.classList.remove('hidden');
+        ratingRightCol.classList.add('hidden');
+        ratingRightCol.classList.remove('flex');
+        divider2.classList.add('hidden');
+        videoCol.classList.add('pb-28');
+        document.body.classList.remove('dock-right');
+        if (toggleBtn) {
+            toggleBtn.className = 'absolute top-2 right-3 w-6 h-6 bg-white/80 backdrop-blur-sm border border-white/60 shadow-sm rounded-full flex items-center justify-center text-gray-400 hover:text-gray-700 transition-colors cursor-pointer z-10';
+            toggleBtn.querySelector('span').className = 'mdi mdi-dock-right text-xs';
+            toggleBtn.title = '切换到右侧停靠';
+        }
+    }
+
+    if (persist) localStorage.setItem(DOCK_MODE_KEY, mode);
+}
 
 // 侧边栏收起/展开
 function toggleSidebar() {
@@ -4766,17 +4876,19 @@ function enterComparisonMode() {
     video.addEventListener('leavepictureinpicture', onLeavePiP);
 
     // 隐藏视频列
-    const videoCol = document.querySelector('#review-workspace > .flex-1.flex.flex-col');
+    const videoCol = document.getElementById('video-col');
     if (videoCol) {
         videoCol.dataset.prevClass = videoCol.className;
         videoCol.classList.add('hidden');
     }
 
     // 扩展 inspector
-    const inspector = document.querySelector('#review-workspace > .w-\\[420px\\]');
+    const inspector = document.getElementById('content-col');
     if (inspector) {
         inspector.dataset.prevClass = inspector.className;
+        inspector.dataset.prevStyle = inspector.getAttribute('style') || '';
         inspector.className = 'flex-1 flex flex-col h-full pb-2';
+        inspector.removeAttribute('style');
     }
 
     // 隐藏 output-group-switcher
@@ -5273,6 +5385,10 @@ function exitComparisonMode() {
     document.querySelectorAll('[data-prev-class]').forEach(el => {
         el.className = el.dataset.prevClass;
         delete el.dataset.prevClass;
+        if (el.dataset.prevStyle !== undefined) {
+            el.setAttribute('style', el.dataset.prevStyle);
+            delete el.dataset.prevStyle;
+        }
     });
 
     // 恢复 inspector 卡片内部内容

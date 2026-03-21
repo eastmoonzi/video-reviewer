@@ -39,9 +39,9 @@
         /* Audiovisual rating grid cells */
         .av-rate-cell { display: flex; flex-direction: column; gap: 2px; }
         .av-rate-top { display: flex; align-items: center; justify-content: space-between; gap: 4px; }
-        .av-rate-label { font-size: 12px; font-weight: 700; color: #374151; white-space: nowrap; min-width: 32px; }
+        .av-rate-label { font-size: 14px; font-weight: 700; color: #374151; white-space: nowrap; min-width: 32px; }
         .av-rate-note {
-            width: 100%; font-size: 11px; padding: 2px 6px; border-radius: 6px;
+            width: 100%; font-size: 14px; padding: 2px 6px; border-radius: 6px;
             border: 1px solid #e5e7eb; background: #f9fafb; color: #374151;
             outline: none; transition: border-color 0.15s;
         }
@@ -151,11 +151,23 @@
         
         /* Rating Stars: Minimal & Fluid */
         .rating-star { 
-            color: #AEAEB2; 
+            color: #AEAEB2; font-size: 18px !important;
             transition: color 0.3s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
         }
         .rating-star:hover { color: #FF9500; transform: scale(1.15); }
         .rating-star.active { color: #FF9500; }
+        /* 工具栏按钮统一放大 */
+        #rating-dock-side-toggle, #rating-dock-toggle { width: 28px !important; height: 28px !important; }
+        #rating-dock-side-toggle span, #rating-dock-toggle span { font-size: 16px !important; }
+
+        /* 底部 dock 收起状态：隐藏评分内容，只保留工具栏 */
+        #rating-dock-body.dock-collapsed > *:not(#rating-dock-toolbar) { display: none !important; }
+        #rating-dock-body.dock-collapsed { padding: 6px 10px !important; border-radius: 999px; }
+
+        /* 底部模式备注框默认加高 */
+        #rating-dock .av-rate-note {
+            height: 3.5em; min-height: 3.5em;
+        }
         
         /* Scrollbar hiding */
         .no-scrollbar::-webkit-scrollbar { display: none; }
@@ -217,6 +229,59 @@
             background: #fef9c3;
             outline: 1.5px solid #facc15;
             border-radius: 8px;
+        }
+
+        /* Column resize handles */
+        .col-resize-handle {
+            width: 5px; cursor: col-resize;
+            background: transparent; transition: background 0.15s;
+            flex-shrink: 0;
+        }
+        .col-resize-handle:hover, .col-resize-handle.resizing { background: #e5e7eb; }
+
+        /* Right dock mode: notes always expanded downward */
+        body.dock-right .av-rate-note {
+            height: 4.5em !important; min-height: 4.5em !important;
+            overflow-y: auto !important; margin-top: 0 !important;
+            resize: vertical;
+        }
+        body.dock-right .av-rate-note:focus {
+            height: auto !important; margin-top: 0 !important;
+        }
+
+        /* Right rating column inner styles */
+        #rating-right-col #rating-dock-body {
+            border-radius: 0; box-shadow: none;
+            background: transparent; padding: 8px;
+            height: 100%; overflow-y: hidden;
+            display: flex; flex-direction: column;
+        }
+        #rating-right-col .av-rate-cell { width: 100%; }
+        /* 各评分面板变纵向全高 */
+        #rating-right-col #segment-rating-dock,
+        #rating-right-col #profile-rating-dock,
+        #rating-right-col #audiovisual-rating-dock {
+            flex-direction: column !important;
+            align-items: stretch !important;
+            flex: 1; min-height: 0;
+        }
+        /* 维度区域可滚动 */
+        #rating-right-col #segment-rating-dock > div.grid,
+        #rating-right-col #profile-rating-dock > div:first-child,
+        #rating-right-col #audiovisual-rating-dock > div:first-child {
+            display: flex !important; flex-direction: column !important;
+            flex-wrap: nowrap !important; gap: 12px;
+            overflow-x: visible !important;
+            overflow-y: auto; flex: 1; min-height: 0;
+        }
+        /* 操作按钮固定底部横排 */
+        #rating-right-col #segment-rating-dock > .flex-shrink-0,
+        #rating-right-col #profile-rating-dock > .flex-shrink-0,
+        #rating-right-col #audiovisual-rating-dock > .flex-shrink-0 {
+            border-left: none !important; padding-left: 0 !important;
+            border-top: 1px solid #e5e7eb;
+            padding-top: 8px; margin-top: 8px;
+            justify-content: flex-end;
         }
     </style>
 </head>
@@ -344,10 +409,10 @@
             </div>
 
             <!-- Review Interface -->
-            <div id="review-workspace" class="hidden flex-1 flex gap-8 min-h-0 w-full">
+            <div id="review-workspace" class="hidden flex-1 flex min-h-0 w-full">
                 
                 <!-- Center: The Cinema (Video) -->
-                <div class="flex-1 flex flex-col min-w-0 pb-28">
+                <div id="video-col" class="flex-1 flex flex-col min-w-0 pb-28">
                     <div class="video-container flex-1 relative group bg-black rounded-[32px] overflow-hidden">
                         <video id="video-player" class="w-full h-full object-contain" playsinline preload="auto"></video>
 
@@ -391,8 +456,11 @@
                     </div>
                 </div>
 
+                <!-- Divider 1: Video | Content -->
+                <div id="col-divider-1" class="col-resize-handle flex-shrink-0"></div>
+
                 <!-- Right: The Inspector (Data) -->
-                <div class="w-[420px] flex flex-col h-full pb-2">
+                <div id="content-col" class="flex flex-col h-full pb-2" style="width:420px; min-width:200px; flex-shrink:0;">
                     <div class="ive-card flex-1 flex flex-col overflow-hidden shadow-xl border border-white/50 bg-white/80 backdrop-blur-md">
                         <!-- 当前任务标题 -->
                         <div id="current-task-label" class="hidden flex-shrink-0 px-6 pt-3 pb-1 cursor-pointer" onclick="this.querySelector('div').classList.toggle('line-clamp-2')">
@@ -437,6 +505,14 @@
                             <div id="audiovisual-content" class="space-y-6 overflow-y-auto no-scrollbar pb-32"></div>
                         </div>
                     </div>
+                </div>
+
+                <!-- Divider 2: Content | Rating (visible in right dock mode only) -->
+                <div id="col-divider-2" class="col-resize-handle flex-shrink-0 hidden"></div>
+
+                <!-- Rating Right Column (visible in right dock mode only) -->
+                <div id="rating-right-col" class="hidden flex-col overflow-y-auto bg-white/50"
+                     style="width:300px; min-width:160px; flex-shrink:0;">
                 </div>
             </div>
         </div>
@@ -612,12 +688,26 @@
     </main>
 
     <!-- Bottom Rating Dock - Outside main to avoid overflow clipping -->
-    <div id="rating-dock" class="fixed bottom-4 left-1/2 transform -translate-x-1/2 z-[100] w-[calc(100%-300px)] max-w-6xl transition-all duration-300">
-        <!-- 收起/展开按钮 -->
-        <button id="rating-dock-toggle" onclick="toggleRatingDock()" class="absolute -top-3 left-1/2 -translate-x-1/2 z-10 bg-white shadow-md border border-gray-200 rounded-full w-7 h-7 flex items-center justify-center hover:bg-gray-50 transition-colors">
-            <span class="mdi mdi-chevron-down text-lg text-gray-500"></span>
-        </button>
-        <div id="rating-dock-body" class="glass-blur shadow-2xl rounded-3xl border border-white/30 ring-1 ring-black/5 p-5 overflow-visible">
+    <div id="rating-dock" class="fixed bottom-2 left-1/2 transform -translate-x-1/2 z-[100] w-[calc(100%-300px)] max-w-6xl transition-all duration-300">
+        <div id="rating-dock-body" class="glass-blur shadow-2xl rounded-3xl border border-white/30 ring-1 ring-black/5 px-5 py-3 overflow-visible">
+            <!-- 工具栏：收起 + 停靠切换，靠右排列 -->
+            <div id="rating-dock-toolbar" class="flex items-center justify-end gap-1 mb-2">
+                <button id="rating-dock-toggle" onclick="toggleRatingDock()"
+                    class="w-6 h-6 bg-white/80 backdrop-blur-sm border border-white/60
+                           shadow-sm rounded-full flex items-center justify-center text-gray-400
+                           hover:text-gray-700 transition-colors cursor-pointer"
+                    title="收起评分面板">
+                    <span class="mdi mdi-window-minimize text-xs"></span>
+                </button>
+                <button id="rating-dock-side-toggle"
+                    onclick="switchRatingDockMode()"
+                    class="w-6 h-6 bg-white/80 backdrop-blur-sm border border-white/60
+                           shadow-sm rounded-full flex items-center justify-center text-gray-400
+                           hover:text-gray-700 transition-colors cursor-pointer"
+                    title="切换到右侧停靠">
+                    <span class="mdi mdi-dock-right text-xs"></span>
+                </button>
+            </div>
             <!-- Segment Rating Dock: 4 dimensions, 1-3 stars -->
             <div id="segment-rating-dock" class="flex items-center gap-6">
                 <div class="grid grid-cols-4 gap-4 flex-1">
