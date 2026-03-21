@@ -1369,15 +1369,22 @@ function selectTask(index) {
 
         const desc = document.createElement('div');
         desc.className = 'text-sm text-gray-400 mb-4';
-        desc.textContent = '请通过以下方式在新标签页中打开';
+        desc.textContent = '无法在此页面嵌入，可小窗播放或复制链接';
 
         const btnRow = document.createElement('div');
         btnRow.className = 'flex gap-3';
 
         const openBtn = document.createElement('button');
         openBtn.className = 'px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium transition-colors';
-        openBtn.textContent = '在新标签页打开';
-        openBtn.addEventListener('click', () => window.open(videoUrl, '_blank'));
+        openBtn.textContent = '小窗播放';
+        openBtn.addEventListener('click', () => {
+            const w = Math.min(900, Math.round(screen.availWidth * 0.65));
+            const h = Math.min(560, Math.round(screen.availHeight * 0.65));
+            const left = Math.round((screen.availWidth - w) / 2);
+            const top = Math.round((screen.availHeight - h) / 2);
+            window.open(videoUrl, '_blank',
+                `width=${w},height=${h},left=${left},top=${top},toolbar=no,menubar=no,scrollbars=no,resizable=yes`);
+        });
 
         const copyBtn = document.createElement('button');
         copyBtn.className = 'px-4 py-2 bg-gray-600 hover:bg-gray-500 rounded-lg text-sm font-medium transition-colors';
