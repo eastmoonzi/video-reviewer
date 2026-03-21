@@ -1278,6 +1278,7 @@ function setRating(dimension, value) {
     state.ratings[dimension] = value;
     const group = document.querySelector(`.rating-group[data-dimension="${dimension}"]`);
     highlightStars(group, value);
+    saveReviewForCurrentGroup();
     saveToLocalStorage();
 }
 
@@ -3935,6 +3936,7 @@ function setSegmentRating(dimension, value) {
     document.querySelectorAll(`.rating-group[data-dimension="${dimension}"][data-mode="segment"]`).forEach(group => {
         highlightSegmentStars(group, value);
     });
+    saveReviewForCurrentGroup();
     saveToLocalStorage();
 }
 
@@ -3956,6 +3958,7 @@ function setProfileRating(dimension, value) {
     document.querySelectorAll(`.rating-group[data-dimension="${dimension}"][data-mode="profile"]`).forEach(group => {
         highlightProfileStars(group, value);
     });
+    saveReviewForCurrentGroup();
     saveToLocalStorage();
 }
 
@@ -4011,6 +4014,7 @@ function setAudiovisualRating(dimension, value) {
     document.querySelectorAll(`.rating-group[data-dimension="${dimension}"][data-mode="audiovisual"]`).forEach(group => {
         highlightProfileStars(group, value);
     });
+    saveReviewForCurrentGroup();
     saveToLocalStorage();
 }
 
