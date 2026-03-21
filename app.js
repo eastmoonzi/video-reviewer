@@ -826,8 +826,6 @@ async function repairSingleOutput(taskIndex, groupIndex) {
     const task = tasks[taskIndex];
     if (!task) return;
     const output = task.model_outputs?.[groupIndex];
-    if (!output?._parseError) return;
-
     const btn = document.getElementById(`repair-single-btn-${taskIndex}-${groupIndex}`);
     if (btn) {
         btn.disabled = true;
@@ -852,7 +850,8 @@ async function repairSingleOutput(taskIndex, groupIndex) {
     }, 1000);
 
     try {
-        const repaired = await callLLMRepair(output.raw, state.reviewMode);
+        const rawText = output.raw || output._raw || JSON.stringify(output);
+        const repaired = await callLLMRepair(rawText, state.reviewMode);
         clearInterval(countdownTimer);
         if (repaired === null || repaired === undefined) {
             throw new Error('LLM 无法识别该 JSON');
@@ -1072,16 +1071,13 @@ function renderRawContent(output, containerId) {
                <span class="text-sm font-semibold text-gray-600">原始文本：</span>
            </div>`;
 
-    let repairBtn = '';
-    if (isError) {
-        const taskIndex = getTaskIndex();
-        const groupIndex = state.currentOutputGroup;
-        repairBtn = `<button id="repair-single-btn-${taskIndex}-${groupIndex}"
-            onclick="repairSingleOutput(${taskIndex}, ${groupIndex})"
-            class="mt-3 px-3 py-1.5 text-xs bg-blue-500 text-white rounded-lg hover:bg-blue-600 flex items-center gap-1">
-            <span class="mdi mdi-wrench"></span> 修复此条
-        </button>`;
-    }
+    const taskIndex = getTaskIndex();
+    const groupIndex = state.currentOutputGroup;
+    const repairBtn = `<button id="repair-single-btn-${taskIndex}-${groupIndex}"
+        onclick="repairSingleOutput(${taskIndex}, ${groupIndex})"
+        class="mt-3 px-3 py-1.5 text-xs bg-blue-500 text-white rounded-lg hover:bg-blue-600 flex items-center gap-1">
+        <span class="mdi mdi-wrench"></span> 修复此条
+    </button>`;
 
     container.innerHTML = `
         <div class="${wrapClass}">
