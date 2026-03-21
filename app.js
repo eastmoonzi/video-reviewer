@@ -187,6 +187,20 @@ document.addEventListener('DOMContentLoaded', () => {
     restoreRatingPanelState();
     restoreReviewMode();
     loadLLMSettings();
+
+    // 备注输入实时保存（防抖 500ms）
+    let _noteSaveTimer = null;
+    document.addEventListener('input', function(e) {
+        const el = e.target;
+        if (el.tagName !== 'TEXTAREA') return;
+        if (!el.id || (!el.id.startsWith('note-') && !el.id.startsWith('dock-note-'))) return;
+        clearTimeout(_noteSaveTimer);
+        _noteSaveTimer = setTimeout(() => {
+            saveReviewForCurrentGroup();
+            saveToLocalStorage();
+        }, 500);
+    });
+
     console.log('初始化完成');
 });
 
@@ -1305,6 +1319,9 @@ function getCurrentTask() {
 }
 
 function selectTask(index) {
+    if (getTaskIndex() !== index) {
+        saveReviewForCurrentGroup();   // 仅在切换到不同任务时才保存
+    }
     const tasks = getTasks();
     if (index < 0 || index >= tasks.length) return;
 
