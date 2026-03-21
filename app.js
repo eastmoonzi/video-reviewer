@@ -1344,10 +1344,7 @@ function selectTask(index) {
     // 加载视频
     // 自动将 HTTP URL 转换为 HTTPS（避免混合内容问题）
     let videoUrl = task.video_url || '';
-    if (videoUrl.startsWith('http://')) {
-        videoUrl = videoUrl.replace('http://', 'https://');
-        console.log('视频URL已从HTTP转换为HTTPS');
-    }
+    videoUrl = safeUpgradeToHttps(videoUrl);
     elements.videoPlayer.src = videoUrl;
     elements.videoPlayer.load();
 
@@ -2026,14 +2023,24 @@ function parseJsonl(content) {
 }
 
 
+// 将 HTTP URL 升级为 HTTPS，但私有/内网 IP 地址跳过
+function safeUpgradeToHttps(url) {
+    if (!url || !url.startsWith('http://')) return url;
+    if (/^http:\/\/(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|127\.|localhost)/i.test(url)) return url;
+    return url.replace(/^http:\/\//i, 'https://');
+}
+
 // 将 JSONL 对象转换为任务格式
 function convertJsonlToTask(obj, index) {
     const rawId = obj.data_id || obj.nid || `task-${index + 1}`;
-    const title = obj.title || obj.video_title || obj.name || '';
+    const titleFromInput = (obj['input文本'] || obj.input || '')
+        .match(/-\s*标题[：:]\s*(.+)/)?.[1]?.trim() || '';
+    const title = obj.title || obj.video_title || obj.name || titleFromInput || '';
     const task = {
         id: title || rawId,
         rawId: rawId,
-        video_url: ((obj.videos && obj.videos[0]) || obj.video_url || '').replace(/^http:\/\//i, 'https://')
+        video_url: safeUpgradeToHttps((obj.videos && obj.videos[0]) || obj.video_url || ''),
+        video_duration: obj.video_duration ? parseInt(obj.video_duration) : null
     };
 
     // 处理 response 字段
@@ -2108,6 +2115,7 @@ function convertJsonlToTask(obj, index) {
     if (response.vision_quality || response.audiovisual_integration || response.visual_integration || response.content_subject) {
         const avOutput = { audiovisual: response };
         if (rawResponseStr) avOutput._raw = rawResponseStr;
+        if (obj.cot) avOutput._raw = (avOutput._raw || '') + '\n\n--- COT ---\n\n' + obj.cot;
         task.model_output = avOutput;
         task.model_outputs = [avOutput];
         task.model_names = [obj.model_name || '默认'];
@@ -2232,6 +2240,7 @@ function convertJsonlToTask(obj, index) {
 
     const output = { segments };
     if (rawResponseStr) output._raw = rawResponseStr;
+    if (obj.cot) output._raw = (output._raw || '') + '\n\n--- COT ---\n\n' + obj.cot;
     // 如果同时包含画像数据（多代码块合并），一并存入
     if (profileData) {
         const gp = profileData.global_profile || profileData;
@@ -2739,7 +2748,7 @@ function parseExcel(arrayBuffer) {
             }
         }
 
-        obj.video_url = videoUrl.replace(/^http:\/\//i, 'https://');
+        obj.video_url = safeUpgradeToHttps(videoUrl);
 
         // 解析模型输出
         obj.model_outputs = [];
