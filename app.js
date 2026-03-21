@@ -93,7 +93,8 @@ const state = {
     },
     // 对比模式
     comparisonMode: false,
-    comparisonGroups: [0, 1]
+    comparisonGroups: [0, 1],
+    taskSearch: ''
 };
 
 // 获取当前模式的任务列表
@@ -1703,6 +1704,36 @@ function goToNextIncomplete() {
     // 所有任务都完成了
     if (getComplete(tasks[startIndex])) {
         alert('🎉 当前模式所有任务已完成！');
+    }
+}
+
+function onTaskSearch(value, clear = false) {
+    const input = document.getElementById('task-search-input');
+    const clearBtn = document.getElementById('task-search-clear');
+    if (clear) { input.value = ''; value = ''; }
+    state.taskSearch = value.trim();
+    clearBtn?.classList.toggle('hidden', !state.taskSearch);
+
+    document.querySelectorAll('.task-item.search-highlight')
+        .forEach(el => el.classList.remove('search-highlight'));
+
+    if (!state.taskSearch) return;
+
+    const q = state.taskSearch.toLowerCase();
+    const tasks = getTasks();
+    const matchIndex = tasks.findIndex((task, i) =>
+        String(i + 1) === q
+        || (task.id || '').toLowerCase().includes(q)
+        || (task.rawId || '').toLowerCase().includes(q)
+    );
+    if (matchIndex === -1) return;
+
+    const items = document.querySelectorAll('.task-item');
+    const el = items[matchIndex];
+    if (el) {
+        selectTask(matchIndex);
+        el.classList.add('search-highlight');
+        el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }
 }
 
