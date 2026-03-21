@@ -9,6 +9,9 @@
 在线打开上方链接即可使用，或本地双击 `index.html` 打开。
 <img width="1440" height="750" alt="image" src="https://github.com/user-attachments/assets/ce86dfb6-f2f6-4acb-84e2-ae3f5ac344e4" />
 
+** llm 修复功能
+使用预设的 key 即可
+
 
 ## 功能概览
 

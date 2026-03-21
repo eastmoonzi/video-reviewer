@@ -3773,6 +3773,15 @@ function initRatingListeners() {
         });
     });
 
+    // 全篇画像 dock 备注区域：聚焦时临时解除 overflow-x-auto 的 Y 轴裁剪
+    const profileScrollEl = document.querySelector('#profile-rating-dock .flex.flex-1');
+    if (profileScrollEl) {
+        profileScrollEl.querySelectorAll('textarea.av-rate-note').forEach(ta => {
+            ta.addEventListener('focus', () => { profileScrollEl.style.overflow = 'visible'; });
+            ta.addEventListener('blur',  () => { profileScrollEl.style.overflow = ''; });
+        });
+    }
+
     // 基础音画质量模式的评分（0-2分，数字样式，复用 highlightProfileStars）
     document.querySelectorAll('.rating-group[data-mode="audiovisual"]').forEach(group => {
         const dimension = group.dataset.dimension;
@@ -3854,6 +3863,8 @@ function resetProfileRatings() {
     });
     
     PROFILE_DIMENSIONS.forEach(dim => {
+        const dockInput = document.getElementById(`dock-note-${dim.key}`);
+        if (dockInput) { dockInput.value = ''; }
         const noteInput = document.getElementById(`note-${dim.key}`);
         if (noteInput) { noteInput.value = ''; }
     });

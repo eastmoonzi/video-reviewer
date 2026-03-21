@@ -389,6 +389,7 @@
                                 <button onclick="switchTab('text')" class="tab-btn tab-active py-4 text-sm font-semibold text-black border-b-2 border-black" data-tab="text">文本</button>
                                 <button onclick="switchTab('visual')" class="tab-btn py-4 text-sm font-medium text-gray-400 hover:text-gray-600 transition-colors border-b-2 border-transparent" data-tab="visual">视觉</button>
                                 <button onclick="switchTab('keyframe')" class="tab-btn py-4 text-sm font-medium text-gray-400 hover:text-gray-600 transition-colors border-b-2 border-transparent" data-tab="keyframe">关键帧</button>
+                                <button onclick="switchTab('raw')" class="tab-btn py-4 text-sm font-medium text-gray-400 hover:text-gray-600 transition-colors border-b-2 border-transparent" data-tab="raw">原文</button>
                                 <div class="ml-auto flex items-center gap-1.5 self-center">
                                     <input type="text" id="time-jump-input" placeholder="跳转 1:30" class="w-[80px] text-xs py-1 px-2 rounded-lg bg-gray-100 border-none outline-none focus:bg-gray-200 font-mono transition-colors" onkeydown="if(event.key==='Enter'){jumpToInputTime(); event.preventDefault();}">
                                     <button onclick="jumpToInputTime()" class="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-black hover:bg-gray-100 transition-colors" title="跳转到指定时间">
@@ -401,6 +402,7 @@
                                 <div id="tab-text" class="tab-panel"><div id="text-content" class="space-y-6 text-sm leading-relaxed text-gray-600"></div></div>
                                 <div id="tab-visual" class="tab-panel hidden"><div id="visual-content" class="space-y-6 text-sm leading-relaxed text-gray-600"></div></div>
                                 <div id="tab-keyframe" class="tab-panel hidden"><div id="keyframe-content" class="space-y-4"></div></div>
+                                <div id="tab-raw" class="tab-panel hidden"><div id="raw-content" class="space-y-4"></div></div>
                             </div>
                         </div>
 
@@ -594,230 +596,321 @@
         <button id="rating-dock-toggle" onclick="toggleRatingDock()" class="absolute -top-3 left-1/2 -translate-x-1/2 z-10 bg-white shadow-md border border-gray-200 rounded-full w-7 h-7 flex items-center justify-center hover:bg-gray-50 transition-colors">
             <span class="mdi mdi-chevron-down text-lg text-gray-500"></span>
         </button>
-        <div id="rating-dock-body" class="glass-blur shadow-2xl rounded-3xl border border-white/30 ring-1 ring-black/5 p-5">
-            
-            <!-- Segment Ratings -->
+        <div id="rating-dock-body" class="glass-blur shadow-2xl rounded-3xl border border-white/30 ring-1 ring-black/5 p-5 overflow-visible">
+            <!-- Segment Rating Dock: 4 dimensions, 1-3 stars -->
             <div id="segment-rating-dock" class="flex items-center gap-6">
-                <div class="grid grid-cols-4 gap-5 flex-1">
-                    <div class="flex flex-col gap-2">
-                        <div class="flex items-center justify-between">
-                            <span class="text-sm font-bold text-gray-700">时间切分</span>
-                            <div class="rating-group flex gap-1" data-dimension="time" data-mode="segment">
-                                <span class="rating-star mdi mdi-star text-2xl cursor-pointer" data-value="1"></span>
-                                <span class="rating-star mdi mdi-star text-2xl cursor-pointer" data-value="2"></span>
-                                <span class="rating-star mdi mdi-star text-2xl cursor-pointer" data-value="3"></span>
+                <div class="grid grid-cols-4 gap-4 flex-1">
+                    <div class="av-rate-cell">
+                        <div class="av-rate-top">
+                            <span class="av-rate-label">时间切分</span>
+                            <div class="rating-group flex gap-0.5" data-dimension="time" data-mode="segment">
+                                <span class="rating-star mdi mdi-star text-base cursor-pointer" data-value="1"></span>
+                                <span class="rating-star mdi mdi-star text-base cursor-pointer" data-value="2"></span>
+                                <span class="rating-star mdi mdi-star text-base cursor-pointer" data-value="3"></span>
                             </div>
                         </div>
-                        <textarea rows="1" id="dock-note-time" placeholder="备注..." class="soft-input text-base py-2"></textarea>
+                        <textarea rows="1" id="dock-note-time" placeholder="备注..." class="av-rate-note"></textarea>
                     </div>
-                    <div class="flex flex-col gap-2">
-                        <div class="flex items-center justify-between">
-                            <span class="text-sm font-bold text-gray-700">文本理解</span>
-                            <div class="rating-group flex gap-1" data-dimension="text" data-mode="segment">
-                                <span class="rating-star mdi mdi-star text-2xl cursor-pointer" data-value="1"></span>
-                                <span class="rating-star mdi mdi-star text-2xl cursor-pointer" data-value="2"></span>
-                                <span class="rating-star mdi mdi-star text-2xl cursor-pointer" data-value="3"></span>
+                    <div class="av-rate-cell">
+                        <div class="av-rate-top">
+                            <span class="av-rate-label">文本理解</span>
+                            <div class="rating-group flex gap-0.5" data-dimension="text" data-mode="segment">
+                                <span class="rating-star mdi mdi-star text-base cursor-pointer" data-value="1"></span>
+                                <span class="rating-star mdi mdi-star text-base cursor-pointer" data-value="2"></span>
+                                <span class="rating-star mdi mdi-star text-base cursor-pointer" data-value="3"></span>
                             </div>
                         </div>
-                        <textarea rows="1" id="dock-note-text" placeholder="备注..." class="soft-input text-base py-2"></textarea>
+                        <textarea rows="1" id="dock-note-text" placeholder="备注..." class="av-rate-note"></textarea>
                     </div>
-                    <div class="flex flex-col gap-2">
-                        <div class="flex items-center justify-between">
-                            <span class="text-sm font-bold text-gray-700">视觉理解</span>
-                            <div class="rating-group flex gap-1" data-dimension="visual" data-mode="segment">
-                                <span class="rating-star mdi mdi-star text-2xl cursor-pointer" data-value="1"></span>
-                                <span class="rating-star mdi mdi-star text-2xl cursor-pointer" data-value="2"></span>
-                                <span class="rating-star mdi mdi-star text-2xl cursor-pointer" data-value="3"></span>
+                    <div class="av-rate-cell">
+                        <div class="av-rate-top">
+                            <span class="av-rate-label">视觉理解</span>
+                            <div class="rating-group flex gap-0.5" data-dimension="visual" data-mode="segment">
+                                <span class="rating-star mdi mdi-star text-base cursor-pointer" data-value="1"></span>
+                                <span class="rating-star mdi mdi-star text-base cursor-pointer" data-value="2"></span>
+                                <span class="rating-star mdi mdi-star text-base cursor-pointer" data-value="3"></span>
                             </div>
                         </div>
-                        <textarea rows="1" id="dock-note-visual" placeholder="备注..." class="soft-input text-base py-2"></textarea>
+                        <textarea rows="1" id="dock-note-visual" placeholder="备注..." class="av-rate-note"></textarea>
                     </div>
-                    <div class="flex flex-col gap-2">
-                        <div class="flex items-center justify-between">
-                            <span class="text-sm font-bold text-gray-700">关键帧</span>
-                            <div class="rating-group flex gap-1" data-dimension="keyframe" data-mode="segment">
-                                <span class="rating-star mdi mdi-star text-2xl cursor-pointer" data-value="1"></span>
-                                <span class="rating-star mdi mdi-star text-2xl cursor-pointer" data-value="2"></span>
-                                <span class="rating-star mdi mdi-star text-2xl cursor-pointer" data-value="3"></span>
+                    <div class="av-rate-cell">
+                        <div class="av-rate-top">
+                            <span class="av-rate-label">关键帧</span>
+                            <div class="rating-group flex gap-0.5" data-dimension="keyframe" data-mode="segment">
+                                <span class="rating-star mdi mdi-star text-base cursor-pointer" data-value="1"></span>
+                                <span class="rating-star mdi mdi-star text-base cursor-pointer" data-value="2"></span>
+                                <span class="rating-star mdi mdi-star text-base cursor-pointer" data-value="3"></span>
                             </div>
                         </div>
-                        <textarea rows="1" id="dock-note-keyframe" placeholder="备注..." class="soft-input text-base py-2"></textarea>
+                        <textarea rows="1" id="dock-note-keyframe" placeholder="备注..." class="av-rate-note"></textarea>
                     </div>
                 </div>
-                <div class="flex items-center gap-3 pl-5 border-l-2 border-gray-300 flex-shrink-0">
-                    <button onclick="skipTask()" class="px-5 py-2.5 text-base font-medium text-gray-600 hover:text-gray-900 hover:bg-black/5 rounded-xl transition-colors">跳过</button>
-                    <button onclick="submitReview()" class="px-6 py-2.5 bg-black text-white text-base font-bold rounded-xl hover:bg-gray-800 transition-colors flex items-center gap-2 active:scale-95">
-                        <span>提交</span><span class="mdi mdi-arrow-right text-lg"></span>
+                <div class="flex items-center gap-2 pl-4 border-l border-gray-200 flex-shrink-0">
+                    <button onclick="skipTask()" class="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-800 hover:bg-black/5 rounded-lg transition-colors">跳过</button>
+                    <button onclick="submitReview()" class="px-4 py-1.5 bg-black text-white text-xs font-semibold rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-1 active:scale-95">
+                        <span>提交</span><span class="mdi mdi-arrow-right text-sm"></span>
                     </button>
                 </div>
             </div>
 
-            <!-- Profile Ratings -->
+            <!-- Profile Rating Dock: 7 dimensions, 0-2 numeric circles -->
             <div id="profile-rating-dock" class="hidden flex items-center gap-5">
-                <div class="flex items-center gap-4 flex-1 overflow-x-auto no-scrollbar">
-                    <div class="flex flex-col gap-1.5 min-w-[110px]">
-                        <div class="flex items-center justify-between gap-2">
-                            <span class="text-sm font-bold text-gray-700">叙事</span>
+                <div class="flex items-center gap-3 flex-1 overflow-x-auto no-scrollbar">
+                    <div class="av-rate-cell min-w-[80px]">
+                        <div class="av-rate-top">
+                            <span class="av-rate-label">叙事</span>
                             <div class="rating-group flex" data-dimension="narrative_type" data-mode="profile">
-                                <span class="rating-star mdi mdi-numeric-0-circle-outline text-xl cursor-pointer" data-value="0"></span>
-                                <span class="rating-star mdi mdi-numeric-1-circle-outline text-xl cursor-pointer" data-value="1"></span>
-                                <span class="rating-star mdi mdi-numeric-2-circle-outline text-xl cursor-pointer" data-value="2"></span>
+                                <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
+                                <span class="rating-star mdi mdi-numeric-1-circle-outline text-sm cursor-pointer" data-value="1"></span>
+                                <span class="rating-star mdi mdi-numeric-2-circle-outline text-sm cursor-pointer" data-value="2"></span>
                             </div>
                         </div>
-                        <textarea rows="1" id="dock-note-narrative_type" placeholder="备注" class="soft-input text-base py-1.5 px-2"></textarea>
+                        <textarea rows="1" id="dock-note-narrative_type" placeholder="备注..." class="av-rate-note"></textarea>
                     </div>
-                    <div class="flex flex-col gap-1.5 min-w-[110px]">
-                        <div class="flex items-center justify-between gap-2">
-                            <span class="text-sm font-bold text-gray-700">画面</span>
+                    <div class="av-rate-cell min-w-[80px]">
+                        <div class="av-rate-top">
+                            <span class="av-rate-label">画面</span>
                             <div class="rating-group flex" data-dimension="visual_type" data-mode="profile">
-                                <span class="rating-star mdi mdi-numeric-0-circle-outline text-xl cursor-pointer" data-value="0"></span>
-                                <span class="rating-star mdi mdi-numeric-1-circle-outline text-xl cursor-pointer" data-value="1"></span>
-                                <span class="rating-star mdi mdi-numeric-2-circle-outline text-xl cursor-pointer" data-value="2"></span>
+                                <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
+                                <span class="rating-star mdi mdi-numeric-1-circle-outline text-sm cursor-pointer" data-value="1"></span>
+                                <span class="rating-star mdi mdi-numeric-2-circle-outline text-sm cursor-pointer" data-value="2"></span>
                             </div>
                         </div>
-                        <textarea rows="1" id="dock-note-visual_type" placeholder="备注" class="soft-input text-base py-1.5 px-2"></textarea>
+                        <textarea rows="1" id="dock-note-visual_type" placeholder="备注..." class="av-rate-note"></textarea>
                     </div>
-                    <div class="flex flex-col gap-1.5 min-w-[110px]">
-                        <div class="flex items-center justify-between gap-2">
-                            <span class="text-sm font-bold text-gray-700">总结</span>
+                    <div class="av-rate-cell min-w-[80px]">
+                        <div class="av-rate-top">
+                            <span class="av-rate-label">总结</span>
                             <div class="rating-group flex" data-dimension="summary" data-mode="profile">
-                                <span class="rating-star mdi mdi-numeric-0-circle-outline text-xl cursor-pointer" data-value="0"></span>
-                                <span class="rating-star mdi mdi-numeric-1-circle-outline text-xl cursor-pointer" data-value="1"></span>
-                                <span class="rating-star mdi mdi-numeric-2-circle-outline text-xl cursor-pointer" data-value="2"></span>
+                                <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
+                                <span class="rating-star mdi mdi-numeric-1-circle-outline text-sm cursor-pointer" data-value="1"></span>
+                                <span class="rating-star mdi mdi-numeric-2-circle-outline text-sm cursor-pointer" data-value="2"></span>
                             </div>
                         </div>
-                        <textarea rows="1" id="dock-note-summary" placeholder="备注" class="soft-input text-base py-1.5 px-2"></textarea>
+                        <textarea rows="1" id="dock-note-summary" placeholder="备注..." class="av-rate-note"></textarea>
                     </div>
-                    <div class="flex flex-col gap-1.5 min-w-[110px]">
-                        <div class="flex items-center justify-between gap-2">
-                            <span class="text-sm font-bold text-gray-700">意图</span>
+                    <div class="av-rate-cell min-w-[80px]">
+                        <div class="av-rate-top">
+                            <span class="av-rate-label">意图</span>
                             <div class="rating-group flex" data-dimension="intent_type" data-mode="profile">
-                                <span class="rating-star mdi mdi-numeric-0-circle-outline text-xl cursor-pointer" data-value="0"></span>
-                                <span class="rating-star mdi mdi-numeric-1-circle-outline text-xl cursor-pointer" data-value="1"></span>
-                                <span class="rating-star mdi mdi-numeric-2-circle-outline text-xl cursor-pointer" data-value="2"></span>
+                                <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
+                                <span class="rating-star mdi mdi-numeric-1-circle-outline text-sm cursor-pointer" data-value="1"></span>
+                                <span class="rating-star mdi mdi-numeric-2-circle-outline text-sm cursor-pointer" data-value="2"></span>
                             </div>
                         </div>
-                        <textarea rows="1" id="dock-note-intent_type" placeholder="备注" class="soft-input text-base py-1.5 px-2"></textarea>
+                        <textarea rows="1" id="dock-note-intent_type" placeholder="备注..." class="av-rate-note"></textarea>
                     </div>
-                    <div class="flex flex-col gap-1.5 min-w-[110px]">
-                        <div class="flex items-center justify-between gap-2">
-                            <span class="text-sm font-bold text-gray-700">主题</span>
+                    <div class="av-rate-cell min-w-[80px]">
+                        <div class="av-rate-top">
+                            <span class="av-rate-label">主题</span>
                             <div class="rating-group flex" data-dimension="topic_consistency" data-mode="profile">
-                                <span class="rating-star mdi mdi-numeric-0-circle-outline text-xl cursor-pointer" data-value="0"></span>
-                                <span class="rating-star mdi mdi-numeric-1-circle-outline text-xl cursor-pointer" data-value="1"></span>
-                                <span class="rating-star mdi mdi-numeric-2-circle-outline text-xl cursor-pointer" data-value="2"></span>
+                                <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
+                                <span class="rating-star mdi mdi-numeric-1-circle-outline text-sm cursor-pointer" data-value="1"></span>
+                                <span class="rating-star mdi mdi-numeric-2-circle-outline text-sm cursor-pointer" data-value="2"></span>
                             </div>
                         </div>
-                        <textarea rows="1" id="dock-note-topic_consistency" placeholder="备注" class="soft-input text-base py-1.5 px-2"></textarea>
+                        <textarea rows="1" id="dock-note-topic_consistency" placeholder="备注..." class="av-rate-note"></textarea>
                     </div>
-                    <div class="flex flex-col gap-1.5 min-w-[110px]">
-                        <div class="flex items-center justify-between gap-2">
-                            <span class="text-sm font-bold text-gray-700">观点</span>
+                    <div class="av-rate-cell min-w-[80px]">
+                        <div class="av-rate-top">
+                            <span class="av-rate-label">观点</span>
                             <div class="rating-group flex" data-dimension="core_claim" data-mode="profile">
-                                <span class="rating-star mdi mdi-numeric-0-circle-outline text-xl cursor-pointer" data-value="0"></span>
-                                <span class="rating-star mdi mdi-numeric-1-circle-outline text-xl cursor-pointer" data-value="1"></span>
-                                <span class="rating-star mdi mdi-numeric-2-circle-outline text-xl cursor-pointer" data-value="2"></span>
+                                <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
+                                <span class="rating-star mdi mdi-numeric-1-circle-outline text-sm cursor-pointer" data-value="1"></span>
+                                <span class="rating-star mdi mdi-numeric-2-circle-outline text-sm cursor-pointer" data-value="2"></span>
                             </div>
                         </div>
-                        <textarea rows="1" id="dock-note-core_claim" placeholder="备注" class="soft-input text-base py-1.5 px-2"></textarea>
+                        <textarea rows="1" id="dock-note-core_claim" placeholder="备注..." class="av-rate-note"></textarea>
                     </div>
-                    <div class="flex flex-col gap-1.5 min-w-[110px]">
-                        <div class="flex items-center justify-between gap-2">
-                            <span class="text-sm font-bold text-gray-700">情感</span>
+                    <div class="av-rate-cell min-w-[80px]">
+                        <div class="av-rate-top">
+                            <span class="av-rate-label">情感</span>
                             <div class="rating-group flex" data-dimension="emotion_type" data-mode="profile">
-                                <span class="rating-star mdi mdi-numeric-0-circle-outline text-xl cursor-pointer" data-value="0"></span>
-                                <span class="rating-star mdi mdi-numeric-1-circle-outline text-xl cursor-pointer" data-value="1"></span>
-                                <span class="rating-star mdi mdi-numeric-2-circle-outline text-xl cursor-pointer" data-value="2"></span>
+                                <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
+                                <span class="rating-star mdi mdi-numeric-1-circle-outline text-sm cursor-pointer" data-value="1"></span>
+                                <span class="rating-star mdi mdi-numeric-2-circle-outline text-sm cursor-pointer" data-value="2"></span>
                             </div>
                         </div>
-                        <textarea rows="1" id="dock-note-emotion_type" placeholder="备注" class="soft-input text-base py-1.5 px-2"></textarea>
+                        <textarea rows="1" id="dock-note-emotion_type" placeholder="备注..." class="av-rate-note"></textarea>
                     </div>
                 </div>
-                <div class="flex items-center gap-3 pl-5 border-l-2 border-gray-300 flex-shrink-0">
-                    <button onclick="skipTask()" class="px-5 py-2.5 text-base font-medium text-gray-600 hover:text-gray-900 hover:bg-black/5 rounded-xl transition-colors">跳过</button>
-                    <button onclick="submitReview()" class="px-6 py-2.5 bg-black text-white text-base font-bold rounded-xl hover:bg-gray-800 transition-colors flex items-center gap-2 active:scale-95">
-                        <span>提交</span><span class="mdi mdi-arrow-right text-lg"></span>
+                <div class="flex items-center gap-2 pl-3 border-l border-gray-200 flex-shrink-0">
+                    <button onclick="skipTask()" class="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-800 hover:bg-black/5 rounded-lg transition-colors">跳过</button>
+                    <button onclick="submitReview()" class="px-4 py-1.5 bg-black text-white text-xs font-semibold rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-1 active:scale-95">
+                        <span>提交</span><span class="mdi mdi-arrow-right text-sm"></span>
                     </button>
                 </div>
             </div>
 
-            <!-- Audiovisual Ratings -->
+            <!-- Audiovisual Rating Dock: 16 dimensions, 0-2 numeric circles -->
             <div id="audiovisual-rating-dock" class="hidden flex items-start gap-4">
-                <div class="flex-1 overflow-y-auto no-scrollbar" style="max-height: 180px;">
-                    <div class="grid grid-cols-8 gap-x-3 gap-y-1.5">
-                        <!-- Row 1: 总体 | 加工 | 加工时间 | 构图 | 构图时间 | 人物 | 人物时间 | 生物 -->
-                        <div class="av-rate-cell">
-                            <div class="av-rate-top"><span class="av-rate-label">总体</span><div class="rating-group flex" data-dimension="overall_quality" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
-                            <textarea rows="1" id="dock-note-overall_quality" placeholder="备注" class="av-rate-note"></textarea>
+                <div class="flex flex-wrap gap-x-3 gap-y-2 flex-1 no-scrollbar">
+                    <div class="av-rate-cell min-w-[72px]">
+                        <div class="av-rate-top"><span class="av-rate-label">总体</span>
+                            <div class="rating-group flex" data-dimension="overall_quality" data-mode="audiovisual">
+                                <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
+                                <span class="rating-star mdi mdi-numeric-1-circle-outline text-sm cursor-pointer" data-value="1"></span>
+                                <span class="rating-star mdi mdi-numeric-2-circle-outline text-sm cursor-pointer" data-value="2"></span>
+                            </div>
                         </div>
-                        <div class="av-rate-cell">
-                            <div class="av-rate-top"><span class="av-rate-label">加工</span><div class="rating-group flex" data-dimension="processing_elements" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
-                            <textarea rows="1" id="dock-note-processing_elements" placeholder="备注" class="av-rate-note"></textarea>
+                        <textarea rows="1" id="dock-note-overall_quality" placeholder="备注..." class="av-rate-note"></textarea>
+                    </div>
+                    <div class="av-rate-cell min-w-[72px]">
+                        <div class="av-rate-top"><span class="av-rate-label">加工</span>
+                            <div class="rating-group flex" data-dimension="processing_elements" data-mode="audiovisual">
+                                <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
+                                <span class="rating-star mdi mdi-numeric-1-circle-outline text-sm cursor-pointer" data-value="1"></span>
+                                <span class="rating-star mdi mdi-numeric-2-circle-outline text-sm cursor-pointer" data-value="2"></span>
+                            </div>
                         </div>
-                        <div class="av-rate-cell">
-                            <div class="av-rate-top"><span class="av-rate-label">加工时间</span><div class="rating-group flex" data-dimension="processing_elements_time" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
-                            <textarea rows="1" id="dock-note-processing_elements_time" placeholder="备注" class="av-rate-note"></textarea>
+                        <textarea rows="1" id="dock-note-processing_elements" placeholder="备注..." class="av-rate-note"></textarea>
+                    </div>
+                    <div class="av-rate-cell min-w-[72px]">
+                        <div class="av-rate-top"><span class="av-rate-label">加工时间</span>
+                            <div class="rating-group flex" data-dimension="processing_elements_time" data-mode="audiovisual">
+                                <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
+                                <span class="rating-star mdi mdi-numeric-1-circle-outline text-sm cursor-pointer" data-value="1"></span>
+                                <span class="rating-star mdi mdi-numeric-2-circle-outline text-sm cursor-pointer" data-value="2"></span>
+                            </div>
                         </div>
-                        <div class="av-rate-cell">
-                            <div class="av-rate-top"><span class="av-rate-label">构图</span><div class="rating-group flex" data-dimension="composition" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
-                            <textarea rows="1" id="dock-note-composition" placeholder="备注" class="av-rate-note"></textarea>
+                        <textarea rows="1" id="dock-note-processing_elements_time" placeholder="备注..." class="av-rate-note"></textarea>
+                    </div>
+                    <div class="av-rate-cell min-w-[72px]">
+                        <div class="av-rate-top"><span class="av-rate-label">构图</span>
+                            <div class="rating-group flex" data-dimension="composition" data-mode="audiovisual">
+                                <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
+                                <span class="rating-star mdi mdi-numeric-1-circle-outline text-sm cursor-pointer" data-value="1"></span>
+                                <span class="rating-star mdi mdi-numeric-2-circle-outline text-sm cursor-pointer" data-value="2"></span>
+                            </div>
                         </div>
-                        <div class="av-rate-cell">
-                            <div class="av-rate-top"><span class="av-rate-label">构图时间</span><div class="rating-group flex" data-dimension="composition_time" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
-                            <textarea rows="1" id="dock-note-composition_time" placeholder="备注" class="av-rate-note"></textarea>
+                        <textarea rows="1" id="dock-note-composition" placeholder="备注..." class="av-rate-note"></textarea>
+                    </div>
+                    <div class="av-rate-cell min-w-[72px]">
+                        <div class="av-rate-top"><span class="av-rate-label">构图时间</span>
+                            <div class="rating-group flex" data-dimension="composition_time" data-mode="audiovisual">
+                                <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
+                                <span class="rating-star mdi mdi-numeric-1-circle-outline text-sm cursor-pointer" data-value="1"></span>
+                                <span class="rating-star mdi mdi-numeric-2-circle-outline text-sm cursor-pointer" data-value="2"></span>
+                            </div>
                         </div>
-                        <div class="av-rate-cell">
-                            <div class="av-rate-top"><span class="av-rate-label">人物</span><div class="rating-group flex" data-dimension="person" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
-                            <textarea rows="1" id="dock-note-person" placeholder="备注" class="av-rate-note"></textarea>
+                        <textarea rows="1" id="dock-note-composition_time" placeholder="备注..." class="av-rate-note"></textarea>
+                    </div>
+                    <div class="av-rate-cell min-w-[72px]">
+                        <div class="av-rate-top"><span class="av-rate-label">人物</span>
+                            <div class="rating-group flex" data-dimension="person" data-mode="audiovisual">
+                                <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
+                                <span class="rating-star mdi mdi-numeric-1-circle-outline text-sm cursor-pointer" data-value="1"></span>
+                                <span class="rating-star mdi mdi-numeric-2-circle-outline text-sm cursor-pointer" data-value="2"></span>
+                            </div>
                         </div>
-                        <div class="av-rate-cell">
-                            <div class="av-rate-top"><span class="av-rate-label">人物时间</span><div class="rating-group flex" data-dimension="person_time" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
-                            <textarea rows="1" id="dock-note-person_time" placeholder="备注" class="av-rate-note"></textarea>
+                        <textarea rows="1" id="dock-note-person" placeholder="备注..." class="av-rate-note"></textarea>
+                    </div>
+                    <div class="av-rate-cell min-w-[72px]">
+                        <div class="av-rate-top"><span class="av-rate-label">人物时间</span>
+                            <div class="rating-group flex" data-dimension="person_time" data-mode="audiovisual">
+                                <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
+                                <span class="rating-star mdi mdi-numeric-1-circle-outline text-sm cursor-pointer" data-value="1"></span>
+                                <span class="rating-star mdi mdi-numeric-2-circle-outline text-sm cursor-pointer" data-value="2"></span>
+                            </div>
                         </div>
-                        <div class="av-rate-cell">
-                            <div class="av-rate-top"><span class="av-rate-label">生物</span><div class="rating-group flex" data-dimension="creature" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
-                            <textarea rows="1" id="dock-note-creature" placeholder="备注" class="av-rate-note"></textarea>
+                        <textarea rows="1" id="dock-note-person_time" placeholder="备注..." class="av-rate-note"></textarea>
+                    </div>
+                    <div class="av-rate-cell min-w-[72px]">
+                        <div class="av-rate-top"><span class="av-rate-label">生物</span>
+                            <div class="rating-group flex" data-dimension="creature" data-mode="audiovisual">
+                                <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
+                                <span class="rating-star mdi mdi-numeric-1-circle-outline text-sm cursor-pointer" data-value="1"></span>
+                                <span class="rating-star mdi mdi-numeric-2-circle-outline text-sm cursor-pointer" data-value="2"></span>
+                            </div>
                         </div>
-                        <!-- Row 2: 生物时间 | 信息 | 真实性 | 地理 | 时效 | 低俗 | 营销 | 道德 -->
-                        <div class="av-rate-cell">
-                            <div class="av-rate-top"><span class="av-rate-label">生物时间</span><div class="rating-group flex" data-dimension="creature_time" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
-                            <textarea rows="1" id="dock-note-creature_time" placeholder="备注" class="av-rate-note"></textarea>
+                        <textarea rows="1" id="dock-note-creature" placeholder="备注..." class="av-rate-note"></textarea>
+                    </div>
+                    <div class="av-rate-cell min-w-[72px]">
+                        <div class="av-rate-top"><span class="av-rate-label">生物时间</span>
+                            <div class="rating-group flex" data-dimension="creature_time" data-mode="audiovisual">
+                                <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
+                                <span class="rating-star mdi mdi-numeric-1-circle-outline text-sm cursor-pointer" data-value="1"></span>
+                                <span class="rating-star mdi mdi-numeric-2-circle-outline text-sm cursor-pointer" data-value="2"></span>
+                            </div>
                         </div>
-                        <div class="av-rate-cell">
-                            <div class="av-rate-top"><span class="av-rate-label">信息</span><div class="rating-group flex" data-dimension="info_attributes" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
-                            <textarea rows="1" id="dock-note-info_attributes" placeholder="备注" class="av-rate-note"></textarea>
+                        <textarea rows="1" id="dock-note-creature_time" placeholder="备注..." class="av-rate-note"></textarea>
+                    </div>
+                    <div class="av-rate-cell min-w-[72px]">
+                        <div class="av-rate-top"><span class="av-rate-label">信息</span>
+                            <div class="rating-group flex" data-dimension="info_attributes" data-mode="audiovisual">
+                                <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
+                                <span class="rating-star mdi mdi-numeric-1-circle-outline text-sm cursor-pointer" data-value="1"></span>
+                                <span class="rating-star mdi mdi-numeric-2-circle-outline text-sm cursor-pointer" data-value="2"></span>
+                            </div>
                         </div>
-                        <div class="av-rate-cell">
-                            <div class="av-rate-top"><span class="av-rate-label">真实性</span><div class="rating-group flex" data-dimension="questionable_info" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
-                            <textarea rows="1" id="dock-note-questionable_info" placeholder="备注" class="av-rate-note"></textarea>
+                        <textarea rows="1" id="dock-note-info_attributes" placeholder="备注..." class="av-rate-note"></textarea>
+                    </div>
+                    <div class="av-rate-cell min-w-[72px]">
+                        <div class="av-rate-top"><span class="av-rate-label">真实性</span>
+                            <div class="rating-group flex" data-dimension="questionable_info" data-mode="audiovisual">
+                                <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
+                                <span class="rating-star mdi mdi-numeric-1-circle-outline text-sm cursor-pointer" data-value="1"></span>
+                                <span class="rating-star mdi mdi-numeric-2-circle-outline text-sm cursor-pointer" data-value="2"></span>
+                            </div>
                         </div>
-                        <div class="av-rate-cell">
-                            <div class="av-rate-top"><span class="av-rate-label">地理</span><div class="rating-group flex" data-dimension="geographic_info" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
-                            <textarea rows="1" id="dock-note-geographic_info" placeholder="备注" class="av-rate-note"></textarea>
+                        <textarea rows="1" id="dock-note-questionable_info" placeholder="备注..." class="av-rate-note"></textarea>
+                    </div>
+                    <div class="av-rate-cell min-w-[72px]">
+                        <div class="av-rate-top"><span class="av-rate-label">地理</span>
+                            <div class="rating-group flex" data-dimension="geographic_info" data-mode="audiovisual">
+                                <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
+                                <span class="rating-star mdi mdi-numeric-1-circle-outline text-sm cursor-pointer" data-value="1"></span>
+                                <span class="rating-star mdi mdi-numeric-2-circle-outline text-sm cursor-pointer" data-value="2"></span>
+                            </div>
                         </div>
-                        <div class="av-rate-cell">
-                            <div class="av-rate-top"><span class="av-rate-label">时效</span><div class="rating-group flex" data-dimension="timeliness_info" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
-                            <textarea rows="1" id="dock-note-timeliness_info" placeholder="备注" class="av-rate-note"></textarea>
+                        <textarea rows="1" id="dock-note-geographic_info" placeholder="备注..." class="av-rate-note"></textarea>
+                    </div>
+                    <div class="av-rate-cell min-w-[72px]">
+                        <div class="av-rate-top"><span class="av-rate-label">时效</span>
+                            <div class="rating-group flex" data-dimension="timeliness_info" data-mode="audiovisual">
+                                <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
+                                <span class="rating-star mdi mdi-numeric-1-circle-outline text-sm cursor-pointer" data-value="1"></span>
+                                <span class="rating-star mdi mdi-numeric-2-circle-outline text-sm cursor-pointer" data-value="2"></span>
+                            </div>
                         </div>
-                        <div class="av-rate-cell">
-                            <div class="av-rate-top"><span class="av-rate-label">低俗</span><div class="rating-group flex" data-dimension="vulgar_intent" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
-                            <textarea rows="1" id="dock-note-vulgar_intent" placeholder="备注" class="av-rate-note"></textarea>
+                        <textarea rows="1" id="dock-note-timeliness_info" placeholder="备注..." class="av-rate-note"></textarea>
+                    </div>
+                    <div class="av-rate-cell min-w-[72px]">
+                        <div class="av-rate-top"><span class="av-rate-label">低俗</span>
+                            <div class="rating-group flex" data-dimension="vulgar_intent" data-mode="audiovisual">
+                                <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
+                                <span class="rating-star mdi mdi-numeric-1-circle-outline text-sm cursor-pointer" data-value="1"></span>
+                                <span class="rating-star mdi mdi-numeric-2-circle-outline text-sm cursor-pointer" data-value="2"></span>
+                            </div>
                         </div>
-                        <div class="av-rate-cell">
-                            <div class="av-rate-top"><span class="av-rate-label">营销</span><div class="rating-group flex" data-dimension="promotional_intent" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
-                            <textarea rows="1" id="dock-note-promotional_intent" placeholder="备注" class="av-rate-note"></textarea>
+                        <textarea rows="1" id="dock-note-vulgar_intent" placeholder="备注..." class="av-rate-note"></textarea>
+                    </div>
+                    <div class="av-rate-cell min-w-[72px]">
+                        <div class="av-rate-top"><span class="av-rate-label">营销</span>
+                            <div class="rating-group flex" data-dimension="promotional_intent" data-mode="audiovisual">
+                                <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
+                                <span class="rating-star mdi mdi-numeric-1-circle-outline text-sm cursor-pointer" data-value="1"></span>
+                                <span class="rating-star mdi mdi-numeric-2-circle-outline text-sm cursor-pointer" data-value="2"></span>
+                            </div>
                         </div>
-                        <div class="av-rate-cell">
-                            <div class="av-rate-top"><span class="av-rate-label">道德</span><div class="rating-group flex" data-dimension="immoral_values" data-mode="audiovisual"><span class="rating-star mdi mdi-numeric-0-circle-outline text-lg cursor-pointer" data-value="0"></span><span class="rating-star mdi mdi-numeric-1-circle-outline text-lg cursor-pointer" data-value="1"></span><span class="rating-star mdi mdi-numeric-2-circle-outline text-lg cursor-pointer" data-value="2"></span></div></div>
-                            <textarea rows="1" id="dock-note-immoral_values" placeholder="备注" class="av-rate-note"></textarea>
+                        <textarea rows="1" id="dock-note-promotional_intent" placeholder="备注..." class="av-rate-note"></textarea>
+                    </div>
+                    <div class="av-rate-cell min-w-[72px]">
+                        <div class="av-rate-top"><span class="av-rate-label">道德</span>
+                            <div class="rating-group flex" data-dimension="immoral_values" data-mode="audiovisual">
+                                <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
+                                <span class="rating-star mdi mdi-numeric-1-circle-outline text-sm cursor-pointer" data-value="1"></span>
+                                <span class="rating-star mdi mdi-numeric-2-circle-outline text-sm cursor-pointer" data-value="2"></span>
+                            </div>
                         </div>
+                        <textarea rows="1" id="dock-note-immoral_values" placeholder="备注..." class="av-rate-note"></textarea>
                     </div>
                 </div>
-                <div class="flex flex-col items-center gap-2 pl-4 border-l-2 border-gray-300 flex-shrink-0 self-center">
-                    <button onclick="submitReview()" class="px-6 py-2.5 bg-black text-white text-base font-bold rounded-xl hover:bg-gray-800 transition-colors flex items-center gap-2 active:scale-95">
-                        <span>提交</span><span class="mdi mdi-arrow-right text-lg"></span>
+                <div class="flex items-center gap-2 pl-3 border-l border-gray-200 flex-shrink-0 self-center">
+                    <button onclick="skipTask()" class="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-800 hover:bg-black/5 rounded-lg transition-colors">跳过</button>
+                    <button onclick="submitReview()" class="px-4 py-1.5 bg-black text-white text-xs font-semibold rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-1 active:scale-95">
+                        <span>提交</span><span class="mdi mdi-arrow-right text-sm"></span>
                     </button>
-                    <button onclick="skipTask()" class="px-5 py-1.5 text-sm font-medium text-gray-500 hover:text-gray-900 hover:bg-black/5 rounded-lg transition-colors">跳过</button>
                 </div>
             </div>
         </div>
