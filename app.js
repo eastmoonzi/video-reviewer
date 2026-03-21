@@ -4332,12 +4332,12 @@ function exportSegmentResults() {
                     '模型名称': modelName,
                     '状态': review?.completed ? '已完成' : '未完成',
                     '时间段切分评分': ratings.time || 0,
-                    '时间段切分备注': notes.time || '',
                     '文本理解评分': ratings.text || 0,
-                    '文本理解备注': notes.text || '',
                     '视觉理解评分': ratings.visual || 0,
-                    '视觉理解备注': notes.visual || '',
                     '关键帧评分': ratings.keyframe || 0,
+                    '时间段切分备注': notes.time || '',
+                    '文本理解备注': notes.text || '',
+                    '视觉理解备注': notes.visual || '',
                     '关键帧备注': notes.keyframe || '',
                     '完成时间': review?.timestamp ? new Date(review.timestamp).toLocaleString('zh-CN') : ''
                 });
@@ -4347,19 +4347,19 @@ function exportSegmentResults() {
             const ratings = review.ratings || {};
             const notes = review.notes || {};
             const modelName = task.model_names?.[0] || '-';
-            
+
             exportData.push({
                 '任务ID': task.id || '',
                 '视频URL': task.video_url || '',
                 '模型名称': modelName,
                 '状态': review.completed ? '已完成' : '未完成',
                 '时间段切分评分': ratings.time || 0,
-                '时间段切分备注': notes.time || '',
                 '文本理解评分': ratings.text || 0,
-                '文本理解备注': notes.text || '',
                 '视觉理解评分': ratings.visual || 0,
-                '视觉理解备注': notes.visual || '',
                 '关键帧评分': ratings.keyframe || 0,
+                '时间段切分备注': notes.time || '',
+                '文本理解备注': notes.text || '',
+                '视觉理解备注': notes.visual || '',
                 '关键帧备注': notes.keyframe || '',
                 '完成时间': review.timestamp ? new Date(review.timestamp).toLocaleString('zh-CN') : ''
             });
@@ -4369,10 +4369,10 @@ function exportSegmentResults() {
     const worksheet = XLSX.utils.json_to_sheet(exportData);
     worksheet['!cols'] = [
         { wch: 10 }, { wch: 50 }, { wch: 15 }, { wch: 8 },
-        { wch: 14 }, { wch: 20 }, { wch: 12 }, { wch: 20 },
-        { wch: 12 }, { wch: 20 }, { wch: 10 }, { wch: 20 }, { wch: 20 }
+        { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 },
+        { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 20 }
     ];
-    
+
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, '分段语义详情');
     XLSX.writeFile(workbook, `分段语义详情-${new Date().toISOString().slice(0, 10)}.xlsx`);
@@ -4399,18 +4399,18 @@ function exportProfileResults() {
                     '模型名称': modelName,
                     '状态': review?.completed ? '已完成' : '未完成',
                     '叙事类型评分': ratings.narrative_type >= 0 ? ratings.narrative_type : '',
-                    '叙事类型备注': notes.narrative_type || '',
                     '画面类型评分': ratings.visual_type >= 0 ? ratings.visual_type : '',
-                    '画面类型备注': notes.visual_type || '',
                     '内容总结评分': ratings.summary >= 0 ? ratings.summary : '',
-                    '内容总结备注': notes.summary || '',
                     '创作意图评分': ratings.intent_type >= 0 ? ratings.intent_type : '',
-                    '创作意图备注': notes.intent_type || '',
                     '主题一致性评分': ratings.topic_consistency >= 0 ? ratings.topic_consistency : '',
-                    '主题一致性备注': notes.topic_consistency || '',
                     '核心观点评分': ratings.core_claim >= 0 ? ratings.core_claim : '',
-                    '核心观点备注': notes.core_claim || '',
                     '情感类型评分': ratings.emotion_type >= 0 ? ratings.emotion_type : '',
+                    '叙事类型备注': notes.narrative_type || '',
+                    '画面类型备注': notes.visual_type || '',
+                    '内容总结备注': notes.summary || '',
+                    '创作意图备注': notes.intent_type || '',
+                    '主题一致性备注': notes.topic_consistency || '',
+                    '核心观点备注': notes.core_claim || '',
                     '情感类型备注': notes.emotion_type || '',
                     '完成时间': review?.timestamp ? new Date(review.timestamp).toLocaleString('zh-CN') : ''
                 });
@@ -4420,25 +4420,25 @@ function exportProfileResults() {
             const ratings = review.ratings || {};
             const notes = review.notes || {};
             const modelName = task.model_names?.[0] || '-';
-            
+
             exportData.push({
                 '任务ID': task.id || '',
                 '视频URL': task.video_url || '',
                 '模型名称': modelName,
                 '状态': review.completed ? '已完成' : '未完成',
                 '叙事类型评分': ratings.narrative_type >= 0 ? ratings.narrative_type : '',
-                '叙事类型备注': notes.narrative_type || '',
                 '画面类型评分': ratings.visual_type >= 0 ? ratings.visual_type : '',
-                '画面类型备注': notes.visual_type || '',
                 '内容总结评分': ratings.summary >= 0 ? ratings.summary : '',
-                '内容总结备注': notes.summary || '',
                 '创作意图评分': ratings.intent_type >= 0 ? ratings.intent_type : '',
-                '创作意图备注': notes.intent_type || '',
                 '主题一致性评分': ratings.topic_consistency >= 0 ? ratings.topic_consistency : '',
-                '主题一致性备注': notes.topic_consistency || '',
                 '核心观点评分': ratings.core_claim >= 0 ? ratings.core_claim : '',
-                '核心观点备注': notes.core_claim || '',
                 '情感类型评分': ratings.emotion_type >= 0 ? ratings.emotion_type : '',
+                '叙事类型备注': notes.narrative_type || '',
+                '画面类型备注': notes.visual_type || '',
+                '内容总结备注': notes.summary || '',
+                '创作意图备注': notes.intent_type || '',
+                '主题一致性备注': notes.topic_consistency || '',
+                '核心观点备注': notes.core_claim || '',
                 '情感类型备注': notes.emotion_type || '',
                 '完成时间': review.timestamp ? new Date(review.timestamp).toLocaleString('zh-CN') : ''
             });
@@ -4448,10 +4448,9 @@ function exportProfileResults() {
     const worksheet = XLSX.utils.json_to_sheet(exportData);
     worksheet['!cols'] = [
         { wch: 10 }, { wch: 50 }, { wch: 15 }, { wch: 8 },
-        { wch: 12 }, { wch: 20 }, { wch: 12 }, { wch: 20 },
-        { wch: 12 }, { wch: 20 }, { wch: 12 }, { wch: 20 },
-        { wch: 14 }, { wch: 20 }, { wch: 12 }, { wch: 20 },
-        { wch: 12 }, { wch: 20 }, { wch: 20 }
+        { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 },
+        { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 20 },
+        { wch: 20 }
     ];
     
     const workbook = XLSX.utils.book_new();
