@@ -4567,6 +4567,7 @@ function buildComparisonView(container, task) {
                 <button onclick="switchComparisonTab('visual')" class="comp-tab-btn text-sm font-medium text-gray-400 hover:text-gray-600 border-b-2 border-transparent pb-1" data-tab="visual">视觉</button>
                 <button onclick="switchComparisonTab('keyframe')" class="comp-tab-btn text-sm font-medium text-gray-400 hover:text-gray-600 border-b-2 border-transparent pb-1" data-tab="keyframe">关键帧</button>
             </div>
+            <div id="comp-rating-group-btns" class="flex gap-1 ml-3"></div>
             <div class="ml-auto flex items-center gap-1.5">
                 <input type="text" id="comp-time-jump-input" placeholder="跳转 1:30" class="w-[80px] text-xs py-1 px-2 rounded-lg bg-gray-100 border-none outline-none focus:bg-gray-200 font-mono transition-colors" onkeydown="if(event.key==='Enter'){jumpToInputTime('comp-time-jump-input'); event.preventDefault();}">
                 <button onclick="jumpToInputTime('comp-time-jump-input')" class="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-black hover:bg-gray-100 transition-colors" title="跳转">
@@ -4580,6 +4581,7 @@ function buildComparisonView(container, task) {
     } else {
         toolbar.innerHTML = `
             <span class="text-sm font-bold text-gray-700">${mode === 'profile' ? '全篇画像' : '音画质量'} 对比</span>
+            <div id="comp-rating-group-btns" class="flex gap-1 ml-3"></div>
             <div class="ml-auto flex items-center gap-1.5">
                 <input type="text" id="comp-time-jump-input" placeholder="跳转 1:30" class="w-[80px] text-xs py-1 px-2 rounded-lg bg-gray-100 border-none outline-none focus:bg-gray-200 font-mono transition-colors" onkeydown="if(event.key==='Enter'){jumpToInputTime('comp-time-jump-input'); event.preventDefault();}">
                 <button onclick="jumpToInputTime('comp-time-jump-input')" class="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-black hover:bg-gray-100 transition-colors" title="跳转">
@@ -4592,6 +4594,7 @@ function buildComparisonView(container, task) {
         `;
     }
     container.appendChild(toolbar);
+    renderComparisonRatingGroupBtns(task);
 
     // 双栏容器
     const cols = document.createElement('div');
@@ -4636,6 +4639,33 @@ function buildComparisonView(container, task) {
 
     container.appendChild(cols);
 }
+
+function renderComparisonRatingGroupBtns(task) {
+    const container = document.getElementById('comp-rating-group-btns');
+    if (!container) return;
+    const names = task.model_names || [];
+    container.innerHTML = names.map((name, gi) => {
+        const isActive = gi === state.currentOutputGroup;
+        return `<button onclick="switchComparisonRatingGroup(${gi})"
+            class="px-2 py-0.5 text-xs rounded border transition-colors ${isActive
+                ? 'bg-black text-white border-black'
+                : 'text-gray-500 border-gray-300 hover:border-gray-500 hover:text-gray-700'}"
+            title="切换评分到 ${escapeHTML(name)}">
+            ${escapeHTML(name)}
+        </button>`;
+    }).join('');
+}
+window.renderComparisonRatingGroupBtns = renderComparisonRatingGroupBtns;
+
+function switchComparisonRatingGroup(groupIndex) {
+    switchOutputGroup(groupIndex);
+    // switchOutputGroup unhides the output-group-switcher; re-hide it in comparison mode
+    const switcher = document.getElementById('output-group-switcher');
+    if (switcher) switcher.classList.add('hidden');
+    const task = getCurrentTask();
+    if (task) renderComparisonRatingGroupBtns(task);
+}
+window.switchComparisonRatingGroup = switchComparisonRatingGroup;
 
 function switchComparisonTab(tabName) {
     state.comparisonTab = tabName;
@@ -4947,6 +4977,7 @@ function refreshComparisonView() {
         const body = col.querySelector('.comp-body');
         if (body) renderComparisonColumn(body, task, state.comparisonGroups[ci]);
     });
+    renderComparisonRatingGroupBtns(task);
 }
 
 function exitComparisonMode() {
