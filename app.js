@@ -1345,8 +1345,58 @@ function selectTask(index) {
     // 自动将 HTTP URL 转换为 HTTPS（避免混合内容问题）
     let videoUrl = task.video_url || '';
     videoUrl = safeUpgradeToHttps(videoUrl);
-    elements.videoPlayer.src = videoUrl;
-    elements.videoPlayer.load();
+
+    // 移除旧 notice（切换任务时清理）
+    const oldNotice = document.getElementById('intranet-video-notice');
+    if (oldNotice) oldNotice.remove();
+
+    if (videoUrl && isIntranetHttp(videoUrl) && location.protocol === 'https:') {
+        // HTTPS 页面 + 内网 HTTP 视频：无法直接播放，显示提示
+        elements.videoPlayer.src = '';
+        elements.videoPlayer.load();
+
+        const notice = document.createElement('div');
+        notice.id = 'intranet-video-notice';
+        notice.className = 'absolute inset-0 flex flex-col items-center justify-center bg-black/80 text-white text-center p-6 z-10';
+
+        const icon = document.createElement('div');
+        icon.className = 'text-4xl mb-3';
+        icon.textContent = '🔒';
+
+        const title = document.createElement('div');
+        title.className = 'text-base font-semibold mb-1';
+        title.textContent = '内网视频无法在此页面直接播放';
+
+        const desc = document.createElement('div');
+        desc.className = 'text-sm text-gray-400 mb-4';
+        desc.textContent = '请通过以下方式在新标签页中打开';
+
+        const btnRow = document.createElement('div');
+        btnRow.className = 'flex gap-3';
+
+        const openBtn = document.createElement('button');
+        openBtn.className = 'px-4 py-2 bg-blue-600 hover:bg-blue-500 rounded-lg text-sm font-medium transition-colors';
+        openBtn.textContent = '在新标签页打开';
+        openBtn.addEventListener('click', () => window.open(videoUrl, '_blank'));
+
+        const copyBtn = document.createElement('button');
+        copyBtn.className = 'px-4 py-2 bg-gray-600 hover:bg-gray-500 rounded-lg text-sm font-medium transition-colors';
+        copyBtn.textContent = '复制链接';
+        copyBtn.addEventListener('click', () => {
+            navigator.clipboard.writeText(videoUrl).then(() => {
+                copyBtn.textContent = '已复制!';
+                setTimeout(() => copyBtn.textContent = '复制链接', 2000);
+            });
+        });
+
+        btnRow.append(openBtn, copyBtn);
+        notice.append(icon, title, desc, btnRow);
+        elements.videoPlayer.parentElement.appendChild(notice);
+    } else {
+        // 本地或无冲突：直接播放
+        elements.videoPlayer.src = videoUrl;
+        elements.videoPlayer.load();
+    }
 
     // 重新应用当前倍速设置（load() 会重置 playbackRate）
     const rateSelect = document.getElementById('playback-rate');
@@ -2023,10 +2073,15 @@ function parseJsonl(content) {
 }
 
 
+// 判断是否是内网 HTTP URL
+function isIntranetHttp(url) {
+    return /^http:\/\/(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|127\.|localhost)/i.test(url);
+}
+
 // 将 HTTP URL 升级为 HTTPS，但私有/内网 IP 地址跳过
 function safeUpgradeToHttps(url) {
     if (!url || !url.startsWith('http://')) return url;
-    if (/^http:\/\/(10\.|192\.168\.|172\.(1[6-9]|2\d|3[01])\.|127\.|localhost)/i.test(url)) return url;
+    if (isIntranetHttp(url)) return url;
     return url.replace(/^http:\/\//i, 'https://');
 }
 
