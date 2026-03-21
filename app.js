@@ -1005,11 +1005,9 @@ function renderTabContent(tabName) {
     if (!task) return;
 
     const output = task.model_output || {};
-    if (output._parseError) {
-        const containers = { text: 'text-content', visual: 'visual-content', keyframe: 'keyframe-content' };
-        renderParseErrorFallback(containers[tabName] || 'text-content');
-        Object.values(containers).filter(id => id !== containers[tabName])
-            .forEach(id => { const el = document.getElementById(id); if (el) el.innerHTML = ''; });
+    // 解析失败时自动跳到原文 tab
+    if (output._parseError && tabName !== 'raw') {
+        switchTab('raw');
         return;
     }
     const segments = output.segments || [];
@@ -1024,8 +1022,54 @@ function renderTabContent(tabName) {
         case 'keyframe':
             renderKeyframeList(segments);
             break;
+        case 'raw':
+            renderRawContent(output, 'raw-content');
+            break;
     }
 }
+
+function renderRawContent(output, containerId) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+
+    const isError = !!output._parseError;
+    const rawStr = isError
+        ? (output.raw || '')
+        : (output._raw || JSON.stringify(output, null, 2));
+
+    const wrapClass = isError
+        ? 'p-4 rounded-2xl border border-amber-200 bg-amber-50'
+        : 'p-4 rounded-2xl border border-gray-200 bg-gray-50';
+
+    const header = isError
+        ? `<div class="flex items-center gap-2 mb-3">
+               <span class="mdi mdi-alert text-amber-500 text-lg"></span>
+               <span class="text-sm font-semibold text-amber-800">JSON 解析失败，原始内容：</span>
+           </div>`
+        : `<div class="flex items-center gap-2 mb-3">
+               <span class="mdi mdi-code-json text-gray-400 text-lg"></span>
+               <span class="text-sm font-semibold text-gray-600">原始文本：</span>
+           </div>`;
+
+    let repairBtn = '';
+    if (isError) {
+        const taskIndex = getTaskIndex();
+        const groupIndex = state.currentOutputGroup;
+        repairBtn = `<button id="repair-single-btn-${taskIndex}-${groupIndex}"
+            onclick="repairSingleOutput(${taskIndex}, ${groupIndex})"
+            class="mt-3 px-3 py-1.5 text-xs bg-blue-500 text-white rounded-lg hover:bg-blue-600 flex items-center gap-1">
+            <span class="mdi mdi-wrench"></span> 修复此条
+        </button>`;
+    }
+
+    container.innerHTML = `
+        <div class="${wrapClass}">
+            ${header}
+            <pre class="text-xs text-gray-700 bg-white border border-gray-100 rounded-xl p-3 overflow-auto max-h-[60vh] whitespace-pre-wrap break-all">${escapeHTML(rawStr)}</pre>
+            ${repairBtn}
+        </div>`;
+}
+window.renderRawContent = renderRawContent;
 
 // 渲染文本理解（显示每个片段的 text 字段）- Ive Style: Unified Gray
 function renderTextUnderstanding(segments) {
@@ -1988,6 +2032,7 @@ function convertJsonlToTask(obj, index) {
     // 检测是否为基础音画质量格式
     if (response.vision_quality || response.audiovisual_integration || response.visual_integration || response.content_subject) {
         const avOutput = { audiovisual: response };
+        if (rawResponseStr) avOutput._raw = rawResponseStr;
         task.model_output = avOutput;
         task.model_outputs = [avOutput];
         task.model_names = [obj.model_name || '默认'];
@@ -2111,6 +2156,7 @@ function convertJsonlToTask(obj, index) {
     });
 
     const output = { segments };
+    if (rawResponseStr) output._raw = rawResponseStr;
     // 如果同时包含画像数据（多代码块合并），一并存入
     if (profileData) {
         const gp = profileData.global_profile || profileData;
@@ -2394,7 +2440,11 @@ function parseJsonCell(cellValue, taskIndex, colIndex) {
     if (!str) return null;
 
     const parsed = quickParseJson(str);
-    if (parsed !== null) return normalizeModelOutput(parsed);
+    if (parsed !== null) {
+        const result = normalizeModelOutput(parsed);
+        if (str) result._raw = str;
+        return result;
+    }
 
     // 无法解析 → _parseError，交 LLM 修复
     console.warn(`任务 ${taskIndex + 1} 第${colIndex}列 JSON解析失败，需 LLM 修复`);
@@ -3391,7 +3441,7 @@ function renderProfileContent() {
     // 获取当前数据组的 profile 数据
     const currentOutput = task.model_outputs?.[state.currentOutputGroup] || task.model_output;
     if (currentOutput?._parseError) {
-        renderParseErrorFallback('profile-content');
+        renderRawContent(currentOutput, 'profile-content');
         return;
     }
     const profileData = currentOutput?.profile || null;
@@ -3449,9 +3499,15 @@ function renderProfileContent() {
             profileData.emotion_type.tag, profileData.emotion_type.reason));
     }
     
-    container.innerHTML = sections.length > 0 
-        ? sections.join('') 
+    container.innerHTML = sections.length > 0
+        ? sections.join('')
         : '<div class="text-gray-400 text-center py-8">暂无全篇语义画像数据</div>';
+    container.innerHTML += `
+        <details class="mt-6">
+            <summary class="text-xs text-gray-400 cursor-pointer select-none hover:text-gray-600 py-1">查看原文</summary>
+            <div id="profile-raw-inline" class="mt-2"></div>
+        </details>`;
+    renderRawContent(currentOutput, 'profile-raw-inline');
 }
 
 // Ive Style: Unified Gray Profile Section - No colorful backgrounds
@@ -3484,7 +3540,7 @@ function renderAudiovisualContent() {
 
     const currentOutput = task.model_outputs?.[state.currentOutputGroup] || task.model_output;
     if (currentOutput?._parseError) {
-        renderParseErrorFallback('audiovisual-content');
+        renderRawContent(currentOutput, 'audiovisual-content');
         return;
     }
     const avData = currentOutput?.audiovisual || null;
@@ -3654,6 +3710,12 @@ function renderAudiovisualContent() {
     container.innerHTML = sections.length > 0
         ? sections.join('')
         : '<div class="text-gray-400 text-center py-8">暂无基础音画质量数据</div>';
+    container.innerHTML += `
+        <details class="mt-6">
+            <summary class="text-xs text-gray-400 cursor-pointer select-none hover:text-gray-600 py-1">查看原文</summary>
+            <div id="audiovisual-raw-inline" class="mt-2"></div>
+        </details>`;
+    renderRawContent(currentOutput, 'audiovisual-raw-inline');
 }
 
 function renderAVSection(title, icon, tag, content, isHtml, evalInfo) {
