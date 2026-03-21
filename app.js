@@ -4793,6 +4793,14 @@ function applyRatingDockMode(mode, persist) {
     const videoCol       = document.getElementById('video-col');
     const toggleBtn      = document.getElementById('rating-dock-side-toggle');
 
+    // 切换前先清除收起状态，防止残留导致空白
+    dockBody.classList.remove('dock-collapsed');
+    const dockToggle = document.getElementById('rating-dock-toggle');
+    if (dockToggle) {
+        dockToggle.querySelector('.mdi')?.classList?.replace('mdi-window-maximize', 'mdi-window-minimize');
+        dockToggle.title = '收起评分面板';
+    }
+
     if (mode === 'right') {
         ratingDock.classList.add('hidden');
         ratingRightCol.appendChild(dockBody);
@@ -4802,20 +4810,20 @@ function applyRatingDockMode(mode, persist) {
         videoCol.classList.remove('pb-28');
         document.body.classList.add('dock-right');
         if (toggleBtn) {
-            toggleBtn.className = 'self-end m-1 w-6 h-6 bg-white/80 backdrop-blur-sm border border-white/60 shadow-sm rounded-full flex items-center justify-center text-gray-400 hover:text-gray-700 transition-colors cursor-pointer flex-shrink-0';
             toggleBtn.querySelector('span').className = 'mdi mdi-dock-bottom text-xs';
             toggleBtn.title = '切换到底部停靠';
         }
     } else {
         ratingDock.appendChild(dockBody);
         ratingDock.classList.remove('hidden');
+        ratingDock.classList.remove('w-auto');
+        ratingDock.classList.add('w-[calc(100%-300px)]', 'max-w-6xl');
         ratingRightCol.classList.add('hidden');
         ratingRightCol.classList.remove('flex');
         divider2.classList.add('hidden');
         videoCol.classList.add('pb-28');
         document.body.classList.remove('dock-right');
         if (toggleBtn) {
-            toggleBtn.className = 'absolute top-2 right-3 w-6 h-6 bg-white/80 backdrop-blur-sm border border-white/60 shadow-sm rounded-full flex items-center justify-center text-gray-400 hover:text-gray-700 transition-colors cursor-pointer z-10';
             toggleBtn.querySelector('span').className = 'mdi mdi-dock-right text-xs';
             toggleBtn.title = '切换到右侧停靠';
         }
@@ -4850,6 +4858,17 @@ function toggleSidebar() {
     }
 }
 window.toggleSidebar = toggleSidebar;
+
+// 点击侧边栏外部区域自动收起
+document.addEventListener('click', function(e) {
+    const sidebar = document.getElementById('task-sidebar');
+    if (!sidebar || sidebar.style.width === '0px') return; // 已收起则忽略
+    // 点击在侧边栏内部或展开/收起按钮上则忽略
+    if (sidebar.contains(e.target)) return;
+    if (e.target.closest('#sidebar-expand-btn') || e.target.closest('#sidebar-collapse-btn')) return;
+    // 收起侧边栏
+    toggleSidebar();
+});
 
 // ============================================
 // 对比模式
