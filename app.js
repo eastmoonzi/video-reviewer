@@ -1898,8 +1898,33 @@ function importTasks() {
     state._pendingFiles = [];
     renderPendingFileList();
     document.getElementById('import-file').value = '';
-    document.getElementById('import-modal').classList.remove('hidden');
-    document.getElementById('import-modal').classList.add('flex');
+    const modal = document.getElementById('import-modal');
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+
+    if (!modal._dragBound) {
+        modal._dragBound = true;
+        const dropZone = document.getElementById('import-file-section');
+        modal.addEventListener('dragover', e => {
+            e.preventDefault();
+            dropZone.style.borderColor = '#3b82f6';
+            dropZone.style.background = 'rgba(59,130,246,0.08)';
+        });
+        modal.addEventListener('dragleave', e => {
+            if (!modal.contains(e.relatedTarget)) {
+                dropZone.style.borderColor = '';
+                dropZone.style.background = '';
+            }
+        });
+        modal.addEventListener('drop', e => {
+            e.preventDefault();
+            dropZone.style.borderColor = '';
+            dropZone.style.background = '';
+            if (e.dataTransfer.files.length) {
+                addFilesToPending(e.dataTransfer.files);
+            }
+        });
+    }
 }
 
 function closeImportModal() {
@@ -1908,19 +1933,22 @@ function closeImportModal() {
     document.getElementById('import-modal').classList.remove('flex');
 }
 
+// 公共：将文件列表加入 pending（去重）
+function addFilesToPending(fileList) {
+    if (!state._pendingFiles) state._pendingFiles = [];
+    const incoming = Array.from(fileList);
+    for (const f of incoming) {
+        const dup = state._pendingFiles.some(e => e.name === f.name && e.size === f.size);
+        if (!dup) state._pendingFiles.push(f);
+    }
+    renderPendingFileList();
+}
+
 // 文件选择回调：累积添加文件
 function onImportFileChange(input) {
-    if (!state._pendingFiles) state._pendingFiles = [];
-    const newFiles = Array.from(input.files);
-    newFiles.forEach(f => {
-        // 去重：同名文件不重复添加
-        if (!state._pendingFiles.some(existing => existing.name === f.name && existing.size === f.size)) {
-            state._pendingFiles.push(f);
-        }
-    });
+    addFilesToPending(input.files);
     // 清空 input 以便下次选同一文件也能触发 change
     input.value = '';
-    renderPendingFileList();
 }
 window.onImportFileChange = onImportFileChange;
 
@@ -4789,6 +4817,18 @@ function buildComparisonView(container, task) {
             </div>
             <div id="comp-rating-group-btns" class="flex gap-1 ml-3"></div>
             <div class="ml-auto flex items-center gap-1.5">
+                <button onclick="seekRelative(-5)" class="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-black hover:bg-gray-100 transition-colors" title="后退5秒">
+                    <span class="mdi mdi-rewind-5 text-sm"></span>
+                </button>
+                <button onclick="seekRelative(5)" class="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-black hover:bg-gray-100 transition-colors" title="前进5秒">
+                    <span class="mdi mdi-fast-forward-5 text-sm"></span>
+                </button>
+                <select id="comp-playback-rate" onchange="elements.videoPlayer.playbackRate=parseFloat(this.value)" class="text-xs font-semibold bg-gray-100 rounded-lg px-1.5 py-1 border-none outline-none cursor-pointer w-14 text-center">
+                    <option value="0.5">0.5×</option>
+                    <option value="1" selected>1×</option>
+                    <option value="1.5">1.5×</option>
+                    <option value="2">2×</option>
+                </select>
                 <input type="text" id="comp-time-jump-input" placeholder="跳转 1:30" class="w-[80px] text-xs py-1 px-2 rounded-lg bg-gray-100 border-none outline-none focus:bg-gray-200 font-mono transition-colors" onkeydown="if(event.key==='Enter'){jumpToInputTime('comp-time-jump-input'); event.preventDefault();}">
                 <button onclick="jumpToInputTime('comp-time-jump-input')" class="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-black hover:bg-gray-100 transition-colors" title="跳转">
                     <span class="mdi mdi-arrow-right-bold text-sm"></span>
@@ -4803,6 +4843,18 @@ function buildComparisonView(container, task) {
             <span class="text-sm font-bold text-gray-700">${mode === 'profile' ? '全篇画像' : '音画质量'} 对比</span>
             <div id="comp-rating-group-btns" class="flex gap-1 ml-3"></div>
             <div class="ml-auto flex items-center gap-1.5">
+                <button onclick="seekRelative(-5)" class="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-black hover:bg-gray-100 transition-colors" title="后退5秒">
+                    <span class="mdi mdi-rewind-5 text-sm"></span>
+                </button>
+                <button onclick="seekRelative(5)" class="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-black hover:bg-gray-100 transition-colors" title="前进5秒">
+                    <span class="mdi mdi-fast-forward-5 text-sm"></span>
+                </button>
+                <select id="comp-playback-rate" onchange="elements.videoPlayer.playbackRate=parseFloat(this.value)" class="text-xs font-semibold bg-gray-100 rounded-lg px-1.5 py-1 border-none outline-none cursor-pointer w-14 text-center">
+                    <option value="0.5">0.5×</option>
+                    <option value="1" selected>1×</option>
+                    <option value="1.5">1.5×</option>
+                    <option value="2">2×</option>
+                </select>
                 <input type="text" id="comp-time-jump-input" placeholder="跳转 1:30" class="w-[80px] text-xs py-1 px-2 rounded-lg bg-gray-100 border-none outline-none focus:bg-gray-200 font-mono transition-colors" onkeydown="if(event.key==='Enter'){jumpToInputTime('comp-time-jump-input'); event.preventDefault();}">
                 <button onclick="jumpToInputTime('comp-time-jump-input')" class="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-black hover:bg-gray-100 transition-colors" title="跳转">
                     <span class="mdi mdi-arrow-right-bold text-sm"></span>
@@ -4814,6 +4866,10 @@ function buildComparisonView(container, task) {
         `;
     }
     container.appendChild(toolbar);
+    // 同步主播放器当前倍速到对比工具栏
+    const mainRate = document.getElementById('playback-rate')?.value || '1';
+    const compRateEl = document.getElementById('comp-playback-rate');
+    if (compRateEl) compRateEl.value = mainRate;
     renderComparisonRatingGroupBtns(task);
 
     // 双栏容器
