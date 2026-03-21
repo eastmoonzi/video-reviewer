@@ -720,9 +720,29 @@ function renderParseErrorFallback(containerId) {
 
 // ─── LLM 修复 ────────────────────────────────────────────────────────────────
 
-const LLM_REPAIR_PROMPT = '将以下内容输出为标准 json 格式，不要任何其他输出。\n\n';
+const LLM_REPAIR_PROMPTS = {
+    segment: `将以下内容修复为合法的 JSON，严格保留所有字段名和字段值，不要增删任何字段，不要任何其他输出。
+目标结构为分段语义数组，每个片段包含字段：start, end, label, description, visual, keyframes。
+原始字段名也可能是：segment_detail / segment_output 包裹的数组，或 time/text/vis/key_frame 等。
+只修复 JSON 格式，不改动任何字段值。\n\n`,
 
-async function callLLMRepair(text) {
+    profile: `将以下内容修复为合法的 JSON，严格保留所有字段名和字段值，不要增删任何字段，不要任何其他输出。
+目标结构为全篇语义画像，包含以下字段（可能被 global_profile 包裹）：
+narrative_type, visual_type, summary, intent_type, topic_consistency, core_claim, emotion_type（或 emotional_tone）。
+只修复 JSON 格式，不改动任何字段值。\n\n`,
+
+    audiovisual: `将以下内容修复为合法的 JSON，严格保留所有字段名和字段值，不要增删任何字段，不要任何其他输出。
+目标结构为基础音画质量评估，完整字段如下：
+- audiovisual_integration（或 visual_integration）: { detail_quality: { level, desc } }
+- vision_quality: { visual_processing_elements: [...], composition: [...] }
+- content_subject: { man_negative_content: [...], creature_negative_content: [...] }
+- information: { information_attributes: [...], questionable_info: { has_issue, desc }, geographic_info: { has_info, desc }, timeliness_info: { has_info, desc } }
+- intent: { vulgar_intent: { has_intent, desc }, promotional_intent: [...] }
+- values: { immoral_values: { has_issue, category: [...], desc } }
+只修复 JSON 格式，不改动任何字段名或字段值。\n\n`,
+};
+
+async function callLLMRepair(text, mode) {
     const useDefault = localStorage.getItem('llm-use-default') !== '';
     const baseUrl = useDefault ? 'https://api.deepseek.com'              : (localStorage.getItem('llm-base-url') || '');
     const apiKey  = useDefault ? 'sk-ffc1051e1e864ccfa8979445c45ca6e5'   : (localStorage.getItem('llm-api-key')  || '');
@@ -733,10 +753,11 @@ async function callLLMRepair(text) {
     }
 
     const isAnthropic = baseUrl.includes('anthropic');
+    const prompt = LLM_REPAIR_PROMPTS[mode] || LLM_REPAIR_PROMPTS.audiovisual;
     const truncated = text.slice(0, 8000);
 
     const messages = [
-        { role: 'user', content: LLM_REPAIR_PROMPT + truncated }
+        { role: 'user', content: prompt + truncated }
     ];
 
     const normalizedBase = baseUrl.replace(/\/+$/, '').replace(/\/v1$/i, '');
@@ -831,7 +852,7 @@ async function repairSingleOutput(taskIndex, groupIndex) {
     }, 1000);
 
     try {
-        const repaired = await callLLMRepair(output.raw);
+        const repaired = await callLLMRepair(output.raw, state.reviewMode);
         clearInterval(countdownTimer);
         if (repaired === null || repaired === undefined) {
             throw new Error('LLM 无法识别该 JSON');
@@ -886,7 +907,7 @@ async function repairAllErrors() {
             const idx = cursor++;
             const { ti, gi, raw } = toRepair[idx];
             try {
-                const repaired = await callLLMRepair(raw);
+                const repaired = await callLLMRepair(raw, state.reviewMode);
                 if (repaired !== null && repaired !== undefined) {
                     tasks[ti].model_outputs[gi] = normalizeModelOutput(repaired);
                     fixedCount++;
@@ -2029,6 +2050,15 @@ function convertJsonlToTask(obj, index) {
         return task;
     }
 
+    // 解包 {"audiovisual": {...}} 外层包装
+    if (!response.vision_quality && !response.audiovisual_integration &&
+        !response.visual_integration && !response.content_subject && response.audiovisual) {
+        const inner = response.audiovisual;
+        if (inner && (inner.vision_quality || inner.audiovisual_integration ||
+                      inner.visual_integration || inner.content_subject)) {
+            response = inner;
+        }
+    }
     // 检测是否为基础音画质量格式
     if (response.vision_quality || response.audiovisual_integration || response.visual_integration || response.content_subject) {
         const avOutput = { audiovisual: response };
@@ -4452,6 +4482,16 @@ normalizeModelOutput = function(data) {
     }
 
     // 如果没有任何有效数据，返回原数据
+    if (!output.segments && !output.profile && !output.audiovisual) {
+        // 尝试解包 {"audiovisual": {...}} 外层包装后重新检测
+        if (data.audiovisual) {
+            const inner = data.audiovisual;
+            if (inner && (inner.vision_quality || inner.audiovisual_integration ||
+                          inner.visual_integration || inner.content_subject)) {
+                output.audiovisual = inner;
+            }
+        }
+    }
     if (!output.segments && !output.profile && !output.audiovisual) {
         return data;
     }
