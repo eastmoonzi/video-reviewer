@@ -2648,6 +2648,21 @@ function parseJsonCell(cellValue, taskIndex, colIndex) {
 }
 
 
+// 修复自动评估 JSON 中重复键名：time得分 后面的 "理由" → "time理由"，"描述" → "time描述"
+// 必须在 JSON.parse 之前调用，否则重复键会被覆盖导致数据丢失
+function fixDuplicateEvalKeys(str) {
+    if (!str || typeof str !== 'string') return str;
+    // 匹配 "time得分" : <value> 之后紧跟的 "理由" 或 "描述"，将其重命名为 "time理由" / "time描述"
+    // 模式：("time得分"\s*:\s*<值>\s*,\s*)"理由" → $1"time理由"
+    // <值> 可以是数字、null、字符串
+    const valPattern = '(?:\\d+(?:\\.\\d+)?|null|"(?:[^"\\\\]|\\\\.)*")';
+    const re = new RegExp(
+        '("time得分"\\s*:\\s*' + valPattern + '\\s*,\\s*)"(理由|描述)"',
+        'g'
+    );
+    return str.replace(re, '$1"time$2"');
+}
+
 // 归一化自动评估数据：将「评估结果.*」中文键名格式转换为内部嵌套格式
 function normalizeAutoEval(parsed) {
     if (!parsed || typeof parsed !== 'object') return parsed;
@@ -2811,7 +2826,7 @@ function parseExcel(arrayBuffer) {
     let nidCol = -1;
     let urlCol = -1;
     let titleCol = -1;
-    let evalCol = -1;
+    const evalCols = []; // 自动评估列（支持多列）
     const modelCols = []; // 模型输出列
     const scoreCols = []; // 评分列
     const noteCols  = []; // 备注列
@@ -2844,9 +2859,9 @@ function parseExcel(arrayBuffer) {
             continue;
         }
 
-        // 检测评估列（精确匹配）
-        if (evalCol === -1 && exactMatch(header, evalKeywords)) {
-            evalCol = col;
+        // 检测评估列（精确匹配，支持多列）
+        if (exactMatch(header, evalKeywords)) {
+            evalCols.push(col);
             console.log(`自动评估列检测: 第${col + 1}列 ("${headerRow[col]}")`);
             continue;
         }
@@ -2881,7 +2896,7 @@ function parseExcel(arrayBuffer) {
     // 如果没有检测到链接列，尝试从非nid非title的非数字列中找
     if (urlCol === -1) {
         for (let col = 0; col < colCount; col++) {
-            if (col === nidCol || col === titleCol || col === evalCol) continue;
+            if (col === nidCol || col === titleCol || evalCols.includes(col)) continue;
             const header = headerRow[col]?.toString().trim().toLowerCase() || '';
             // 跳过明显是序号的列
             if (header === '序号' || header === 'no' || header === 'index') continue;
@@ -2895,7 +2910,7 @@ function parseExcel(arrayBuffer) {
     const dataRows = rows.slice(1);
 
     // 确定模型列（排除已识别的特殊列、评分列、备注列）
-    const specialCols = new Set([nidCol, urlCol, titleCol, evalCol,
+    const specialCols = new Set([nidCol, urlCol, titleCol, ...evalCols,
         ...scoreCols.map(s => s.col), ...noteCols.map(n => n.col), ...skipColIndices]);
     const finalModelCols = [];
     for (let col = 0; col < colCount; col++) {
@@ -2967,11 +2982,30 @@ function parseExcel(arrayBuffer) {
             obj.model_names.push(modelCol.name);
         }
 
-        // 解析自动评估列
-        if (evalCol >= 0 && row[evalCol]) {
-            const parsed = quickParseJson(String(row[evalCol]));
-            if (parsed) obj.autoEval = normalizeAutoEval(parsed);
-            else console.warn(`任务 ${i + 1} 自动评估数据解析失败`);
+        // 解析自动评估列（支持多列，按顺序与模型列一一配对）
+        if (evalCols.length > 0) {
+            obj.autoEvals = [];
+            if (evalCols.length === 1 && row[evalCols[0]]) {
+                // 单个评估列：应用于所有模型输出
+                const parsed = quickParseJson(fixDuplicateEvalKeys(String(row[evalCols[0]])));
+                const normalized = parsed ? normalizeAutoEval(parsed) : null;
+                if (!parsed) console.warn(`任务 ${i + 1} 自动评估数据解析失败`);
+                for (let m = 0; m < obj.model_outputs.length; m++) obj.autoEvals.push(normalized);
+            } else {
+                // 多个评估列：第N个evalCol对应第N个模型列
+                for (let m = 0; m < obj.model_outputs.length; m++) {
+                    const ec = evalCols[m];
+                    if (ec != null && row[ec]) {
+                        const parsed = quickParseJson(fixDuplicateEvalKeys(String(row[ec])));
+                        if (parsed) obj.autoEvals.push(normalizeAutoEval(parsed));
+                        else { obj.autoEvals.push(null); console.warn(`任务 ${i + 1} 模型${m + 1} 自动评估数据解析失败`); }
+                    } else {
+                        obj.autoEvals.push(null);
+                    }
+                }
+            }
+            // 兼容：保留 autoEval 指向第一组
+            obj.autoEval = obj.autoEvals[0] || null;
         }
 
         // 兼容旧格式
@@ -3120,44 +3154,48 @@ function processImportData(data) {
             task.audiovisualReviews = [null];
         }
 
-        // 如果有自动评估数据，直接写入 audiovisualReviews
-        if (task.autoEval) {
-            const ev = task.autoEval;
-            const evalMap = {
-                overall_quality:          ev.audiovisual_integration?.detail_quality || ev.visual_integration?.detail_quality,
-                processing_elements:      ev.vision_quality?.visual_processing_elements,
-                processing_elements_time: ev.vision_quality?.visual_processing_elements,
-                composition:              ev.vision_quality?.composition,
-                composition_time:         ev.vision_quality?.composition,
-                person:                   ev.content_subject?.man_negative_content,
-                person_time:              ev.content_subject?.man_negative_content,
-                creature:                 ev.content_subject?.creature_negative_content,
-                creature_time:            ev.content_subject?.creature_negative_content,
-                info_attributes:          ev.information?.information_attributes,
-                questionable_info:        ev.information?.questionable_info,
-                geographic_info:          ev.information?.geographic_info,
-                timeliness_info:          ev.information?.timeliness_info,
-                vulgar_intent:            ev.intent?.vulgar_intent,
-                promotional_intent:       Array.isArray(ev.intent?.promotional_intent) ? ev.intent.promotional_intent[0] : ev.intent?.promotional_intent,
-                promotional_intent_time:  Array.isArray(ev.intent?.promotional_intent) ? ev.intent.promotional_intent[0] : ev.intent?.promotional_intent,
-                immoral_values:           ev.values?.immoral_values
-            };
-            const ratings = {};
-            const notes = {};
-            AUDIOVISUAL_DIMENSIONS.forEach(dim => {
-                const d = evalMap[dim.key];
-                if (!d) { ratings[dim.key] = -1; notes[dim.key] = ''; return; }
-                const isTime = dim.key.endsWith('_time');
-                ratings[dim.key] = isTime ? (d['time得分'] ?? -1) : (d['得分'] ?? -1);
-                notes[dim.key] = isTime ? (d['time理由'] || '') : (d['理由'] || '');
-            });
-            task.audiovisualReviews = (task.model_outputs || [{}]).map(() => ({
-                mode: 'audiovisual',
-                ratings: { ...ratings },
-                notes: { ...notes },
-                completed: Object.values(ratings).some(r => r >= 0),
-                timestamp: new Date().toISOString()
-            }));
+        // 如果有自动评估数据，逐组写入 audiovisualReviews
+        if (task.autoEvals && task.autoEvals.length > 0) {
+            const groupCount = task.model_outputs?.length || 1;
+            for (let gi = 0; gi < groupCount; gi++) {
+                const ev = task.autoEvals[gi];
+                if (!ev) continue;
+                const evalMap = {
+                    overall_quality:          ev.audiovisual_integration?.detail_quality || ev.visual_integration?.detail_quality,
+                    processing_elements:      ev.vision_quality?.visual_processing_elements,
+                    processing_elements_time: ev.vision_quality?.visual_processing_elements,
+                    composition:              ev.vision_quality?.composition,
+                    composition_time:         ev.vision_quality?.composition,
+                    person:                   ev.content_subject?.man_negative_content,
+                    person_time:              ev.content_subject?.man_negative_content,
+                    creature:                 ev.content_subject?.creature_negative_content,
+                    creature_time:            ev.content_subject?.creature_negative_content,
+                    info_attributes:          ev.information?.information_attributes,
+                    questionable_info:        ev.information?.questionable_info,
+                    geographic_info:          ev.information?.geographic_info,
+                    timeliness_info:          ev.information?.timeliness_info,
+                    vulgar_intent:            ev.intent?.vulgar_intent,
+                    promotional_intent:       Array.isArray(ev.intent?.promotional_intent) ? ev.intent.promotional_intent[0] : ev.intent?.promotional_intent,
+                    promotional_intent_time:  Array.isArray(ev.intent?.promotional_intent) ? ev.intent.promotional_intent[0] : ev.intent?.promotional_intent,
+                    immoral_values:           ev.values?.immoral_values
+                };
+                const ratings = {};
+                const notes = {};
+                AUDIOVISUAL_DIMENSIONS.forEach(dim => {
+                    const d = evalMap[dim.key];
+                    if (!d) { ratings[dim.key] = -1; notes[dim.key] = ''; return; }
+                    const isTime = dim.key.endsWith('_time');
+                    ratings[dim.key] = isTime ? (d['time得分'] ?? -1) : (d['得分'] ?? -1);
+                    notes[dim.key] = isTime ? (d['time理由'] || d['time描述'] || '') : (d['理由'] || d['描述'] || '');
+                });
+                task.audiovisualReviews[gi] = {
+                    mode: 'audiovisual',
+                    ratings: { ...ratings },
+                    notes: { ...notes },
+                    completed: Object.values(ratings).some(r => r >= 0),
+                    timestamp: new Date().toISOString()
+                };
+            }
         }
 
         // 如果 Excel 中有已有评分/备注，预填到 profileReviews
@@ -3881,19 +3919,19 @@ function renderAudiovisualContent() {
     }
 
     const sections = [];
-    const ev = task.autoEval || null; // 自动评估数据
+    const ev = task.autoEvals?.[state.currentOutputGroup] || task.autoEval || null; // 自动评估数据
 
     // 从评估数据中提取维度信息的辅助函数
     function getEval(obj) {
         if (!obj) return null;
         // 支持对象或数组中第一个元素
         const d = Array.isArray(obj) ? obj[0] : obj;
-        if (!d || (d['得分'] == null && d['理由'] == null)) return null;
+        if (!d || (d['得分'] == null && d['理由'] == null && d['描述'] == null)) return null;
         return {
             score: d['得分'] ?? null,
-            reason: d['理由'] || '',
+            reason: d['理由'] || d['描述'] || '',
             timeScore: d['time得分'] ?? null,
-            timeReason: d['time理由'] || ''
+            timeReason: d['time理由'] || d['time描述'] || ''
         };
     }
 
@@ -4420,7 +4458,7 @@ loadReviewForCurrentGroup = function() {
         } else {
             // 无人工评审，尝试从自动评估预填
             resetAudiovisualRatings();
-            const ev = task.autoEval;
+            const ev = task.autoEvals?.[state.currentOutputGroup] || task.autoEval;
             if (ev) {
                 const evalMap = {
                     overall_quality:          ev.audiovisual_integration?.detail_quality || ev.visual_integration?.detail_quality,
@@ -4446,7 +4484,7 @@ loadReviewForCurrentGroup = function() {
                     if (!d) return;
                     const isTime = dim.key.endsWith('_time');
                     const score = isTime ? (d['time得分'] ?? -1) : (d['得分'] ?? -1);
-                    const reason = isTime ? (d['time理由'] || '') : (d['理由'] || '');
+                    const reason = isTime ? (d['time理由'] || d['time描述'] || '') : (d['理由'] || d['描述'] || '');
                     if (score >= 0) {
                         state.audiovisualRatings[dim.key] = score;
                         document.querySelectorAll(`.rating-group[data-dimension="${dim.key}"][data-mode="audiovisual"]`).forEach(group => {
@@ -5284,7 +5322,7 @@ function renderComparisonColumn(bodyEl, task, groupIndex) {
     } else if (mode === 'profile') {
         html = generateProfileHTML(output.profile || null);
     } else if (mode === 'audiovisual') {
-        html = generateAudiovisualHTML(output.audiovisual || null, task.autoEval);
+        html = generateAudiovisualHTML(output.audiovisual || null, task.autoEvals?.[groupIndex] || task.autoEval);
     }
 
     bodyEl.innerHTML = `<div class="space-y-4 text-sm leading-relaxed text-gray-600">${html || '<div class="text-gray-400 text-center py-8">暂无数据</div>'}</div>`;
@@ -5391,8 +5429,8 @@ function generateAudiovisualHTML(avData, autoEval) {
     function getEval(obj) {
         if (!obj) return null;
         const d = Array.isArray(obj) ? obj[0] : obj;
-        if (!d || (d['得分'] == null && d['理由'] == null)) return null;
-        return { score: d['得分'] ?? null, reason: d['理由'] || '', timeScore: d['time得分'] ?? null, timeReason: d['time理由'] || '' };
+        if (!d || (d['得分'] == null && d['理由'] == null && d['描述'] == null)) return null;
+        return { score: d['得分'] ?? null, reason: d['理由'] || d['描述'] || '', timeScore: d['time得分'] ?? null, timeReason: d['time理由'] || d['time描述'] || '' };
     }
 
     // 1. 总体评估摘要
