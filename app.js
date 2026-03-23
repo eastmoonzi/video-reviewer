@@ -2191,9 +2191,11 @@ function convertJsonlToTask(obj, index) {
 
     // response 可能是 null、数组或单个对象
     if (!response) {
-        // 原文只保留 response 字段内容（LLM 修复只需要这部分），cot 仅作兜底
-        const fullRaw = rawResponseStr
-            || (obj.cot ? (typeof obj.cot === 'string' ? obj.cot : JSON.stringify(obj.cot)) : '');
+        // response 在前、cot 在后，全部保留不截断，供显示和 LLM 修复
+        const rawParts = [];
+        if (rawResponseStr) rawParts.push(rawResponseStr);
+        if (obj.cot) rawParts.push(typeof obj.cot === 'string' ? obj.cot : JSON.stringify(obj.cot));
+        const fullRaw = rawParts.join('\n\n---\n\n');
 
         if (fullRaw.trim()) {
             // 有原始内容但解析失败 → _parseError，供 LLM 修复
