@@ -71,6 +71,7 @@ const state = {
         timeliness_info: -1,
         vulgar_intent: -1,
         promotional_intent: -1,
+        promotional_intent_time: -1,
         immoral_values: -1
     },
     audiovisualNotes: {
@@ -89,6 +90,7 @@ const state = {
         timeliness_info: '',
         vulgar_intent: '',
         promotional_intent: '',
+        promotional_intent_time: '',
         immoral_values: ''
     },
     // 对比模式
@@ -158,6 +160,7 @@ const AUDIOVISUAL_DIMENSIONS = [
     // 意图与价值
     { key: 'vulgar_intent', label: '低俗意图', shortLabel: '低俗' },
     { key: 'promotional_intent', label: '营销引流', shortLabel: '营销' },
+    { key: 'promotional_intent_time', label: '营销引流时间', shortLabel: '营销时间' },
     { key: 'immoral_values', label: '违背道德', shortLabel: '道德' }
 ];
 
@@ -2645,6 +2648,100 @@ function parseJsonCell(cellValue, taskIndex, colIndex) {
 }
 
 
+// 归一化自动评估数据：将「评估结果.*」中文键名格式转换为内部嵌套格式
+function normalizeAutoEval(parsed) {
+    if (!parsed || typeof parsed !== 'object') return parsed;
+
+    // 如果已经是内部格式（含 audiovisual_integration / vision_quality 等），直接返回
+    if (parsed.audiovisual_integration || parsed.visual_integration || parsed.vision_quality) return parsed;
+
+    // 取「评估结果」子对象；如果顶层就是各维度则直接用
+    const evalData = parsed['评估结果'] || parsed;
+    if (!evalData || typeof evalData !== 'object') return parsed;
+
+    // 英文 key → 内部路径映射
+    const KEY_MAP = {
+        'detail_quality':              ['audiovisual_integration', 'detail_quality'],
+        'visual_processing_elements':  ['vision_quality', 'visual_processing_elements'],
+        'composition':                 ['vision_quality', 'composition'],
+        'man_negative_content':        ['content_subject', 'man_negative_content'],
+        'creature_negative_content':   ['content_subject', 'creature_negative_content'],
+        'information_attributes':      ['information', 'information_attributes'],
+        'questionable_info':           ['information', 'questionable_info'],
+        'geographic_info':             ['information', 'geographic_info'],
+        'timeliness_info':             ['information', 'timeliness_info'],
+        'vulgar_intent':               ['intent', 'vulgar_intent'],
+        'promotional_intent':          ['intent', 'promotional_intent'],
+        'immoral_values':              ['values', 'immoral_values']
+    };
+
+    // 中文前缀 → 英文 key 的回退映射
+    const CN_PREFIX_MAP = {
+        '细节精美度':       'detail_quality',
+        '加工元素':         'visual_processing_elements',
+        '构图':             'composition',
+        '人物相关负向':     'man_negative_content',
+        '生物相关负向':     'creature_negative_content',
+        '信息属性':         'information_attributes',
+        '真实性存疑':       'questionable_info',
+        '地理位置':         'geographic_info',
+        '时空与时效':       'timeliness_info',
+        '低俗':             'vulgar_intent',
+        '营销与引流':       'promotional_intent',
+        '违背社会道德':     'immoral_values'
+    };
+
+    // 从维度键名中提取英文 key（优先括号内，回退中文前缀）
+    function resolveKey(dimName) {
+        // 尝试从括号内提取：「xxx（english_key）」或「xxx (english_key)」
+        const m = dimName.match(/[（(]\s*([A-Za-z_]+)\s*[）)]/);
+        if (m && KEY_MAP[m[1].toLowerCase()]) return m[1].toLowerCase();
+        if (m && KEY_MAP[m[1]]) return m[1];
+        // 回退：中文前缀匹配
+        for (const [prefix, key] of Object.entries(CN_PREFIX_MAP)) {
+            if (dimName.includes(prefix)) return key;
+        }
+        return null;
+    }
+
+    // 归一化单个维度的得分字段
+    function normalizeDimScores(obj) {
+        if (!obj || typeof obj !== 'object') return obj;
+        const out = { ...obj };
+        // 「人物负向得分」→「得分」
+        if (out['人物负向得分'] != null && out['得分'] == null) {
+            out['得分'] = out['人物负向得分'];
+        }
+        // 「生物负向得分」→「得分」
+        if (out['生物负向得分'] != null && out['得分'] == null) {
+            out['得分'] = out['生物负向得分'];
+        }
+        return out;
+    }
+
+    const result = {};
+    let matched = false;
+
+    for (const [dimName, dimData] of Object.entries(evalData)) {
+        if (dimName === 'GT改进建议' || dimName === 'gt改进建议') {
+            result._gtSuggestion = dimData;
+            continue;
+        }
+        const engKey = resolveKey(dimName);
+        if (!engKey || !KEY_MAP[engKey]) continue;
+
+        const [group, field] = KEY_MAP[engKey];
+        if (!result[group]) result[group] = {};
+        result[group][field] = normalizeDimScores(dimData);
+        matched = true;
+    }
+
+    // 保留 GT改进建议 到顶层
+    if (parsed['GT改进建议']) result._gtSuggestion = parsed['GT改进建议'];
+
+    return matched ? result : parsed;
+}
+
 // 从Excel单元格提取URL（处理超链接格式）
 function extractUrlFromCell(worksheet, cellAddress) {
     const cell = worksheet[cellAddress];
@@ -2700,7 +2797,7 @@ function parseExcel(arrayBuffer) {
     const nidKeywords = ['nid', 'data_id', '编号', 'id'];
     const urlKeywords = ['url', 'video_url', '链接', '视频链接', '视频地址', 'video', 'videos'];
     const titleKeywords = ['标题', 'title', 'video_title', '视频标题'];
-    const evalKeywords = ['评估', '自动评估', 'eval', 'evaluation', '评测'];
+    const evalKeywords = ['评估', '自动评估', '自动化评估结果', 'eval', 'evaluation', '评测'];
     const scoreKeywords = ['_score', '评分', '得分'];  // 这三个仍用 includes（作为后缀）
     const noteKeywords  = ['_问题', '备注', '问题描述'];  // 同上
     const skipKeywords  = ['序号', 'no', 'index', 'tools', 'user_content', 'asr',
@@ -2873,7 +2970,7 @@ function parseExcel(arrayBuffer) {
         // 解析自动评估列
         if (evalCol >= 0 && row[evalCol]) {
             const parsed = quickParseJson(String(row[evalCol]));
-            if (parsed) obj.autoEval = parsed;
+            if (parsed) obj.autoEval = normalizeAutoEval(parsed);
             else console.warn(`任务 ${i + 1} 自动评估数据解析失败`);
         }
 
@@ -3021,6 +3118,46 @@ function processImportData(data) {
             task.reviews = [null];
             task.profileReviews = [null];
             task.audiovisualReviews = [null];
+        }
+
+        // 如果有自动评估数据，直接写入 audiovisualReviews
+        if (task.autoEval) {
+            const ev = task.autoEval;
+            const evalMap = {
+                overall_quality:          ev.audiovisual_integration?.detail_quality || ev.visual_integration?.detail_quality,
+                processing_elements:      ev.vision_quality?.visual_processing_elements,
+                processing_elements_time: ev.vision_quality?.visual_processing_elements,
+                composition:              ev.vision_quality?.composition,
+                composition_time:         ev.vision_quality?.composition,
+                person:                   ev.content_subject?.man_negative_content,
+                person_time:              ev.content_subject?.man_negative_content,
+                creature:                 ev.content_subject?.creature_negative_content,
+                creature_time:            ev.content_subject?.creature_negative_content,
+                info_attributes:          ev.information?.information_attributes,
+                questionable_info:        ev.information?.questionable_info,
+                geographic_info:          ev.information?.geographic_info,
+                timeliness_info:          ev.information?.timeliness_info,
+                vulgar_intent:            ev.intent?.vulgar_intent,
+                promotional_intent:       Array.isArray(ev.intent?.promotional_intent) ? ev.intent.promotional_intent[0] : ev.intent?.promotional_intent,
+                promotional_intent_time:  Array.isArray(ev.intent?.promotional_intent) ? ev.intent.promotional_intent[0] : ev.intent?.promotional_intent,
+                immoral_values:           ev.values?.immoral_values
+            };
+            const ratings = {};
+            const notes = {};
+            AUDIOVISUAL_DIMENSIONS.forEach(dim => {
+                const d = evalMap[dim.key];
+                if (!d) { ratings[dim.key] = -1; notes[dim.key] = ''; return; }
+                const isTime = dim.key.endsWith('_time');
+                ratings[dim.key] = isTime ? (d['time得分'] ?? -1) : (d['得分'] ?? -1);
+                notes[dim.key] = isTime ? (d['time理由'] || '') : (d['理由'] || '');
+            });
+            task.audiovisualReviews = (task.model_outputs || [{}]).map(() => ({
+                mode: 'audiovisual',
+                ratings: { ...ratings },
+                notes: { ...notes },
+                completed: Object.values(ratings).some(r => r >= 0),
+                timestamp: new Date().toISOString()
+            }));
         }
 
         // 如果 Excel 中有已有评分/备注，预填到 profileReviews
@@ -3801,8 +3938,10 @@ function renderAudiovisualContent() {
     if (comp && comp.length > 0) {
         const items = comp.map(el => {
             const timeStr = Array.isArray(el.time) ? `${formatTimeLink(el.time[0])}→${formatTimeLink(el.time[1])}` : '';
-            return `<b>${escapeHTML(el.tag || el.desc || '-')}</b>` +
-                (el.desc && el.tag ? `：${linkifyTime(escapeHTML(el.desc))}` : '') +
+            const primary = el.tag || el.type || el.desc || '-';
+            const secondary = el.type && el.tag && el.type !== el.tag ? ` <b>${escapeHTML(el.type)}</b>` : '';
+            return `<b>${escapeHTML(primary)}</b>${secondary}` +
+                (el.desc && (el.tag || el.type) ? `：${linkifyTime(escapeHTML(el.desc))}` : '') +
                 (timeStr ? ` <span class="text-gray-400 font-mono text-[11px]">${timeStr}</span>` : '');
         }).join('<br>');
         sections.push(renderAVSection('构图', 'mdi-grid', null, items, true,
@@ -4299,6 +4438,7 @@ loadReviewForCurrentGroup = function() {
                     timeliness_info:          ev.information?.timeliness_info,
                     vulgar_intent:            ev.intent?.vulgar_intent,
                     promotional_intent:       Array.isArray(ev.intent?.promotional_intent) ? ev.intent.promotional_intent[0] : ev.intent?.promotional_intent,
+                    promotional_intent_time:  Array.isArray(ev.intent?.promotional_intent) ? ev.intent.promotional_intent[0] : ev.intent?.promotional_intent,
                     immoral_values:           ev.values?.immoral_values
                 };
                 AUDIOVISUAL_DIMENSIONS.forEach(dim => {
@@ -5291,8 +5431,10 @@ function generateAudiovisualHTML(avData, autoEval) {
     if (comp && comp.length > 0) {
         const items = comp.map(el => {
             const timeStr = Array.isArray(el.time) ? `${formatTimeLink(el.time[0])}→${formatTimeLink(el.time[1])}` : '';
-            return `<b>${escapeHTML(el.tag || el.desc || '-')}</b>` +
-                (el.desc && el.tag ? `：${linkifyTime(escapeHTML(el.desc))}` : '') +
+            const primary = el.tag || el.type || el.desc || '-';
+            const secondary = el.type && el.tag && el.type !== el.tag ? ` <b>${escapeHTML(el.type)}</b>` : '';
+            return `<b>${escapeHTML(primary)}</b>${secondary}` +
+                (el.desc && (el.tag || el.type) ? `：${linkifyTime(escapeHTML(el.desc))}` : '') +
                 (timeStr ? ` <span class="text-gray-400 font-mono text-[11px]">${timeStr}</span>` : '');
         }).join('<br>');
         sections.push(renderAVSection('构图', 'mdi-grid', null, items, true, getEval(ev?.vision_quality?.composition)));

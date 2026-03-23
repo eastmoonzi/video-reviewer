@@ -184,13 +184,20 @@
         }
         .soft-input:focus { background: #E5E5EA; outline: none; }
         /* Textarea notes: default collapsed 1 line, expand upward on focus */
-        textarea.soft-input, textarea.av-rate-note {
+        textarea.soft-input {
             resize: none; overflow: hidden; min-height: 1.8em;
             line-height: 1.4; display: block;
             height: 1.8em; transition: height 0.15s ease, margin-top 0.15s ease;
         }
-        textarea.soft-input:focus, textarea.av-rate-note:focus {
+        textarea.soft-input:focus {
             overflow-y: auto; height: 7em; margin-top: -5.2em;
+        }
+        textarea.av-rate-note {
+            resize: none; overflow: hidden;
+            line-height: 1.4; display: block;
+        }
+        textarea.av-rate-note:focus {
+            overflow-y: auto;
         }
         /* Keep textarea background unchanged on focus */
         textarea.soft-input:focus { background: #F2F2F7; }
