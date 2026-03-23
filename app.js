@@ -3960,7 +3960,9 @@ function renderAudiovisualContent() {
     if (vpe && vpe.length > 0) {
         const items = vpe.map(el => {
             const timeStr = Array.isArray(el.time) ? `${formatTimeLink(el.time[0])}→${formatTimeLink(el.time[1])}` : '';
-            return `<b>${escapeHTML(el.tag || '-')}</b>：${linkifyTime(escapeHTML(el.desc || ''))}` +
+            const primary = el.tag || el.type || '-';
+            const secondary = el.type && el.tag && el.type !== el.tag ? ` <b>${escapeHTML(el.type)}</b>` : '';
+            return `<b>${escapeHTML(primary)}</b>${secondary}：${linkifyTime(escapeHTML(el.desc || ''))}` +
                 (el.position ? ` <span class="text-gray-400">[${escapeHTML(el.position)}${el.area_ratio ? ', ' + escapeHTML(el.area_ratio) : ''}]</span>` : '') +
                 (timeStr ? ` <span class="text-gray-400 font-mono text-[11px]">${timeStr}</span>` : '');
         }).join('<br>');
@@ -4126,7 +4128,9 @@ function renderAVSection(title, icon, tag, content, isHtml, evalInfo) {
 
 function renderAVListItem(el) {
     const parts = [];
-    if (el.tag) parts.push(`<b>${escapeHTML(el.tag)}</b>`);
+    const primary = el.tag || el.type;
+    if (primary) parts.push(`<b>${escapeHTML(primary)}</b>`);
+    if (el.type && el.tag && el.type !== el.tag) parts.push(`<b>${escapeHTML(el.type)}</b>`);
     if (el.desc) parts.push(linkifyTime(escapeHTML(el.desc)));
     if (el.position) parts.push(`<span class="text-gray-400">[${escapeHTML(el.position)}]</span>`);
     if (Array.isArray(el.time)) {
@@ -5455,7 +5459,9 @@ function generateAudiovisualHTML(avData, autoEval) {
     if (vpe && vpe.length > 0) {
         const items = vpe.map(el => {
             const timeStr = Array.isArray(el.time) ? `${formatTimeLink(el.time[0])}→${formatTimeLink(el.time[1])}` : '';
-            return `<b>${escapeHTML(el.tag || '-')}</b>：${linkifyTime(escapeHTML(el.desc || ''))}` +
+            const primary = el.tag || el.type || '-';
+            const secondary = el.type && el.tag && el.type !== el.tag ? ` <b>${escapeHTML(el.type)}</b>` : '';
+            return `<b>${escapeHTML(primary)}</b>${secondary}：${linkifyTime(escapeHTML(el.desc || ''))}` +
                 (el.position ? ` <span class="text-gray-400">[${escapeHTML(el.position)}${el.area_ratio ? ', ' + escapeHTML(el.area_ratio) : ''}]</span>` : '') +
                 (timeStr ? ` <span class="text-gray-400 font-mono text-[11px]">${timeStr}</span>` : '');
         }).join('<br>');
