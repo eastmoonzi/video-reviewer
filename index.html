@@ -416,7 +416,7 @@
             </div>
 
             <!-- Review Interface -->
-            <div id="review-workspace" class="hidden flex-1 flex min-h-0 w-full">
+            <div id="review-workspace" class="hidden flex-1 flex min-h-0 w-full relative">
                 
                 <!-- Center: The Cinema (Video) -->
                 <div id="video-col" class="flex-1 flex flex-col min-w-0 pb-28">
@@ -521,6 +521,16 @@
                 <div id="rating-right-col" class="hidden flex-col overflow-y-auto bg-white/50"
                      style="width:300px; min-width:160px; flex-shrink:0;">
                 </div>
+
+                <!-- Floating expand button (visible when right rating col is collapsed) -->
+                <button id="rating-expand-fab" onclick="toggleRatingDock()"
+                    class="hidden absolute right-0 top-1/2 -translate-y-1/2 z-50
+                           w-6 h-12 bg-white/90 backdrop-blur-sm border border-gray-200
+                           shadow-md rounded-l-lg flex items-center justify-center text-gray-400
+                           hover:text-gray-700 hover:bg-white transition-colors cursor-pointer"
+                    title="展开评分面板">
+                    <span class="mdi mdi-chevron-left text-sm"></span>
+                </button>
             </div>
         </div>
 

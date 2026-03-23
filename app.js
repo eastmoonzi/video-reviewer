@@ -2191,15 +2191,13 @@ function convertJsonlToTask(obj, index) {
 
     // response 可能是 null、数组或单个对象
     if (!response) {
-        // 收集所有可能包含 JSON 的原始内容（cot + response）
-        const rawParts = [];
-        if (obj.cot) rawParts.push(typeof obj.cot === 'string' ? obj.cot : JSON.stringify(obj.cot));
-        if (rawResponseStr) rawParts.push(rawResponseStr);
-        const fullRaw = rawParts.join('\n\n---\n\n');
+        // 原文只保留 response 字段内容（LLM 修复只需要这部分），cot 仅作兜底
+        const fullRaw = rawResponseStr
+            || (obj.cot ? (typeof obj.cot === 'string' ? obj.cot : JSON.stringify(obj.cot)) : '');
 
         if (fullRaw.trim()) {
             // 有原始内容但解析失败 → _parseError，供 LLM 修复
-            const errorOutput = { _parseError: true, raw: fullRaw.slice(0, 8000) };
+            const errorOutput = { _parseError: true, raw: fullRaw };
             task.model_output = errorOutput;
             task.model_outputs = [errorOutput];
             task.model_names = [obj.model_name || '默认'];
@@ -2596,6 +2594,22 @@ function quickParseJson(str) {
     // 6. 直接 JSON.parse
     try { return JSON.parse(str); } catch (_) {}
 
+    // 6.5 全角/中文标点归一化后重试
+    //     ""/""→"  ：→:  ，→,（仅在 JSON 值外部替换冒号和逗号会破坏文本，
+    //     所以只替换引号，冒号仅替换紧跟引号的模式）
+    try {
+        let norm = str
+            .replace(/[\u201c\u201d\u201e\u201f\u00ab\u00bb]/g, '"')  // 各类弯引号→直引号
+            .replace(/[\u2018\u2019\u201a\u201b]/g, "'")              // 各类弯单引号→直单引号
+            .replace(/"\s*\uff1a\s*/g, '": ')                         // "key"： → "key": 
+            .replace(/\uff1a\s*"/g, ': "');                            // ：" → : "
+        if (norm !== str) {
+            try { return JSON.parse(norm); } catch (_) {}
+            // 继续到 Python dict 容错
+            str = norm;
+        }
+    } catch (_) {}
+
     // 7. Python dict 语法容错（单引号 key/value、True/False/None）
     try {
         let py = str;
@@ -2644,7 +2658,7 @@ function parseJsonCell(cellValue, taskIndex, colIndex) {
 
     // 无法解析 → _parseError，交 LLM 修复
     console.warn(`任务 ${taskIndex + 1} 第${colIndex}列 JSON解析失败，需 LLM 修复`);
-    return { _parseError: true, raw: str.slice(0, 8000) };
+    return { _parseError: true, raw: str };
 }
 
 
@@ -4884,10 +4898,29 @@ function toggleRatingDock() {
     if (mode === 'right') {
         const col      = document.getElementById('rating-right-col');
         const divider2 = document.getElementById('col-divider-2');
+        const fab      = document.getElementById('rating-expand-fab');
+        const toggle   = document.getElementById('rating-dock-toggle');
+        const icon     = toggle?.querySelector('.mdi');
         const saved    = JSON.parse(localStorage.getItem(COL_WIDTHS_KEY) || '{}');
-        const isCollapsed = col.style.width === '0px';
-        col.style.width = isCollapsed ? (saved.rating || 300) + 'px' : '0px';
-        divider2.style.visibility = isCollapsed ? '' : 'hidden';
+        const isCollapsed = col.classList.contains('hidden');
+        if (isCollapsed) {
+            // 展开
+            col.classList.remove('hidden');
+            col.classList.add('flex');
+            col.style.width = (saved.rating || 300) + 'px';
+            divider2.classList.remove('hidden');
+            if (fab) { fab.classList.add('hidden'); fab.classList.remove('flex'); }
+            if (icon) icon.classList.replace('mdi-window-maximize', 'mdi-window-minimize');
+            if (toggle) toggle.title = '收起评分面板';
+        } else {
+            // 收起：完全隐藏
+            col.classList.add('hidden');
+            col.classList.remove('flex');
+            divider2.classList.add('hidden');
+            if (fab) { fab.classList.remove('hidden'); fab.classList.add('flex'); }
+            if (icon) icon.classList.replace('mdi-window-minimize', 'mdi-window-maximize');
+            if (toggle) toggle.title = '展开评分面板';
+        }
         return;
     }
     const dock = document.getElementById('rating-dock');
@@ -4983,12 +5016,15 @@ function applyRatingDockMode(mode, persist) {
         dockToggle.title = '收起评分面板';
     }
 
+    const fab = document.getElementById('rating-expand-fab');
+
     if (mode === 'right') {
         ratingDock.classList.add('hidden');
         ratingRightCol.appendChild(dockBody);
         ratingRightCol.classList.remove('hidden');
         ratingRightCol.classList.add('flex');
         divider2.classList.remove('hidden');
+        if (fab) { fab.classList.add('hidden'); fab.classList.remove('flex'); }
         videoCol.classList.remove('pb-28');
         document.body.classList.add('dock-right');
         if (toggleBtn) {
@@ -5003,6 +5039,7 @@ function applyRatingDockMode(mode, persist) {
         ratingRightCol.classList.add('hidden');
         ratingRightCol.classList.remove('flex');
         divider2.classList.add('hidden');
+        if (fab) { fab.classList.add('hidden'); fab.classList.remove('flex'); }
         videoCol.classList.add('pb-28');
         document.body.classList.remove('dock-right');
         if (toggleBtn) {
