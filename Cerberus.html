@@ -1181,6 +1181,7 @@
 // ============================================
 // 视频审查工作台 - 主应用逻辑
 // build: 2026-03-10a
+const APP_VERSION = '2026-03-24a';
 // ============================================
 console.log('%c[app.js] 脚本已加载 ' + new Date().toLocaleTimeString(), 'color:green;font-weight:bold');
 
@@ -4752,6 +4753,18 @@ async function loadFromLocalStorage() {
         if (seg) state.segmentTasks = seg;
         if (prof) state.profileTasks = prof;
         if (av) state.audiovisualTasks = av;
+
+        // 迁移旧数据：.raw → ._raw
+        [state.segmentTasks, state.profileTasks, state.audiovisualTasks].forEach(tasks => {
+            tasks?.forEach(task => {
+                task.model_outputs?.forEach(o => {
+                    if (o && o.raw !== undefined && o._raw === undefined) {
+                        o._raw = o.raw;
+                        delete o.raw;
+                    }
+                });
+            });
+        });
 
         setTimeout(() => {
             const currentTasks = getTasks();
