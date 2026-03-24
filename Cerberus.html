@@ -1438,6 +1438,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         }, 500);
     });
 
+    // 异步检查版本更新
+    checkForUpdate();
     console.log('初始化完成');
 });
 
@@ -2276,6 +2278,76 @@ function toggleDefaultLLM(checked) {
     });
 }
 window.toggleDefaultLLM = toggleDefaultLLM;
+
+// ============================================
+// 版本更新检查
+// ============================================
+async function checkForUpdate() {
+    try {
+        const controller = new AbortController();
+        setTimeout(() => controller.abort(), 3000);
+        const resp = await fetch(
+            'https://raw.githubusercontent.com/eastmoonzi/video-reviewer/main/version.json',
+            { signal: controller.signal, cache: 'no-store' }
+        );
+        if (!resp.ok) return;
+        const data = await resp.json();
+        if (data.version && data.version !== APP_VERSION) {
+            showUpdateBanner(data.version, data.download_url);
+        }
+    } catch (e) {
+        // 网络失败静默忽略
+    }
+}
+
+function showUpdateBanner(version, downloadUrl) {
+    if (document.getElementById('update-banner')) return;
+    const banner = document.createElement('div');
+    banner.id = 'update-banner';
+    banner.className = 'fixed top-0 left-0 right-0 z-[9999] bg-blue-500 text-white text-sm px-4 py-2 flex items-center justify-center gap-3';
+    banner.innerHTML = `
+        <span class="mdi mdi-update text-lg"></span>
+        <span>有新版本可用 (v${version})</span>
+        <button onclick="downloadUpdate('${downloadUrl}')"
+                class="px-3 py-0.5 bg-white text-blue-600 rounded-full text-xs font-semibold hover:bg-blue-50 transition-colors">
+            下载更新
+        </button>
+        <button onclick="this.parentElement.remove()"
+                class="ml-2 text-white/70 hover:text-white transition-colors">
+            <span class="mdi mdi-close"></span>
+        </button>
+    `;
+    document.body.prepend(banner);
+}
+window.showUpdateBanner = showUpdateBanner;
+
+async function downloadUpdate(url) {
+    const btn = document.querySelector('#update-banner button');
+    if (btn) {
+        btn.textContent = '下载中...';
+        btn.disabled = true;
+    }
+    try {
+        const resp = await fetch(url, { cache: 'no-store' });
+        if (!resp.ok) throw new Error('下载失败');
+        const html = await resp.text();
+        const blob = new Blob([html], { type: 'text/html' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = 'Cerberus.html';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(a.href);
+        if (btn) btn.textContent = '已下载，请覆盖保存后刷新';
+    } catch (e) {
+        if (btn) {
+            btn.textContent = '下载失败，请重试';
+            btn.disabled = false;
+        }
+    }
+}
+window.downloadUpdate = downloadUpdate;
 
 function renderTabContent(tabName) {
     const task = getCurrentTask();
