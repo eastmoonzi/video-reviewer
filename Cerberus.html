@@ -3921,7 +3921,22 @@ function quickParseJson(str) {
     // 6. 直接 JSON.parse
     try { return JSON.parse(str); } catch (_) {}
 
-    // 6.5 全角/中文标点归一化后重试
+    // 6.5 修复 LLM 输出中缺失的逗号：}{ → },{  ][ → ],[
+    //     JSON 字符串不能包含字面换行符，所以 }\n{ 一定是结构层的分隔
+    try {
+        let fixed = str.replace(/\}(\s*[\r\n]+\s*)\{/g, '},$1{')
+                       .replace(/\](\s*[\r\n]+\s*)\[/g, '],$1[');
+        if (fixed !== str) {
+            try { return JSON.parse(fixed); } catch (_) {}
+        }
+        // 更激进：不要求换行（如果 }{ 在字符串内部，修复后仍会是非法 JSON，JSON.parse 会失败，安全回退）
+        fixed = str.replace(/\}(\s*)\{/g, '},$1{').replace(/\](\s*)\[/g, '],$1[');
+        if (fixed !== str) {
+            try { return JSON.parse(fixed); } catch (_) {}
+        }
+    } catch (_) {}
+
+    // 6.7 全角/中文标点归一化后重试
     //     ""/""→"  ：→:  ，→,（仅在 JSON 值外部替换冒号和逗号会破坏文本，
     //     所以只替换引号，冒号仅替换紧跟引号的模式）
     try {
@@ -5191,10 +5206,15 @@ function renderProfileContent() {
     
     // 画面类型
     if (profileData.visual_type) {
-        const visualTag = typeof profileData.visual_type === 'object' 
-            ? `主要: ${profileData.visual_type['主要画面类型'] || profileData.visual_type.main || '-'}, 次要: ${profileData.visual_type['次要画面类型'] || profileData.visual_type.secondary || '-'}`
-            : profileData.visual_type;
-        sections.push(renderProfileSection('画面类型', 'mdi-image', 'green', visualTag, null));
+        if (typeof profileData.visual_type === 'object' && profileData.visual_type.tag) {
+            sections.push(renderProfileSection('画面类型', 'mdi-image', 'green',
+                profileData.visual_type.tag, profileData.visual_type.reason));
+        } else {
+            const visualTag = typeof profileData.visual_type === 'object'
+                ? `主要: ${profileData.visual_type['主要画面类型'] || profileData.visual_type.main || '-'}, 次要: ${profileData.visual_type['次要画面类型'] || profileData.visual_type.secondary || '-'}`
+                : profileData.visual_type;
+            sections.push(renderProfileSection('画面类型', 'mdi-image', 'green', visualTag, null));
+        }
     }
     
     // 内容总结
