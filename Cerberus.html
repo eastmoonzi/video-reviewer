@@ -1964,7 +1964,7 @@ function renderParseErrorFallback(containerId) {
                 <span class="mdi mdi-alert text-amber-500 text-lg"></span>
                 <span class="text-sm font-semibold text-amber-800">JSON 解析失败，原始内容：</span>
             </div>
-            <pre class="text-xs text-gray-700 bg-white border border-amber-100 rounded-xl p-3 overflow-auto max-h-60 whitespace-pre-wrap break-all">${escapeHTML(output.raw || '')}</pre>
+            <pre class="text-xs text-gray-700 bg-white border border-amber-100 rounded-xl p-3 overflow-auto max-h-60 whitespace-pre-wrap break-all">${escapeHTML(output._raw || '')}</pre>
             <button id="repair-single-btn-${taskIndex}-${groupIndex}"
                     onclick="repairSingleOutput(${taskIndex}, ${groupIndex})"
                     class="mt-3 px-3 py-1.5 text-xs bg-blue-500 text-white rounded-lg hover:bg-blue-600 flex items-center gap-1">
@@ -2106,7 +2106,7 @@ async function repairSingleOutput(taskIndex, groupIndex) {
     }, 1000);
 
     try {
-        const rawText = output.raw || output._raw || JSON.stringify(output);
+        const rawText = output._raw || JSON.stringify(output);
         const repaired = await callLLMRepair(rawText, state.reviewMode);
         clearInterval(countdownTimer);
         if (repaired === null || repaired === undefined) {
@@ -2138,7 +2138,7 @@ async function repairAllErrors() {
     const toRepair = [];
     tasks.forEach((task, ti) => {
         task.model_outputs?.forEach((output, gi) => {
-            if (output?._parseError) toRepair.push({ ti, gi, raw: output.raw });
+            if (output?._parseError) toRepair.push({ ti, gi, raw: output._raw });
         });
     });
 
@@ -2309,9 +2309,7 @@ function renderRawContent(output, containerId) {
     if (!container) return;
 
     const isError = !!output._parseError;
-    const rawStr = isError
-        ? (output.raw || '')
-        : (output._raw || JSON.stringify(output, null, 2));
+    const rawStr = output._raw || (isError ? '' : JSON.stringify(output, null, 2));
 
     const wrapClass = isError
         ? 'p-4 rounded-2xl border border-amber-200 bg-amber-50'
@@ -3908,7 +3906,7 @@ function parseJsonCell(cellValue, taskIndex, colIndex) {
 
     // 无法解析 → _parseError，交 LLM 修复
     console.warn(`任务 ${taskIndex + 1} 第${colIndex}列 JSON解析失败，需 LLM 修复`);
-    return { _parseError: true, raw: str };
+    return { _parseError: true, _raw: str };
 }
 
 
@@ -6600,7 +6598,7 @@ function renderComparisonColumn(bodyEl, task, groupIndex) {
                     <span class="mdi mdi-alert text-amber-500"></span>
                     <span class="text-sm font-semibold text-amber-800">JSON 解析失败</span>
                 </div>
-                <pre class="text-xs text-gray-700 bg-white border rounded-lg p-2 overflow-auto max-h-40 whitespace-pre-wrap break-all">${escapeHTML(output.raw || '')}</pre>
+                <pre class="text-xs text-gray-700 bg-white border rounded-lg p-2 overflow-auto max-h-40 whitespace-pre-wrap break-all">${escapeHTML(output._raw || '')}</pre>
             </div>`;
         return;
     }
