@@ -514,6 +514,11 @@
 
                         <!-- Audiovisual Content -->
                         <div id="audiovisual-mode-content" class="hidden flex flex-col flex-1 overflow-hidden p-6">
+                            <div class="flex items-center justify-end mb-2 flex-shrink-0">
+                                <button onclick="importAudiovisualAutoEval()" class="px-3 py-1 text-xs text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-full transition-colors flex items-center gap-1" title="导入音画质量自动评估结果（JSONL）">
+                                    <span class="mdi mdi-file-import text-sm"></span>导入自动评估
+                                </button>
+                            </div>
                             <div id="audiovisual-content" class="space-y-6 overflow-y-auto no-scrollbar pb-32"></div>
                         </div>
                     </div>
@@ -1530,6 +1535,148 @@ function importProfileAutoEval() {
 
                 saveToLocalStorage();
                 renderProfileContent();
+                loadReviewForCurrentGroup();
+                updateProgress();
+                renderTaskList();
+                alert(`导入完成：共 ${totalCount} 条评估数据，匹配 ${matchedCount} 个任务`);
+            } catch (err) {
+                alert('文件解析失败: ' + err.message);
+                console.error('自动评估导入错误:', err);
+            }
+        };
+        reader.readAsText(file);
+    };
+    input.click();
+}
+
+// 导入音画质量自动评估结果（JSONL 文件）
+function importAudiovisualAutoEval() {
+    const tasks = getTasks();
+    if (tasks.length === 0) {
+        alert('请先导入任务数据，再导入自动评估结果');
+        return;
+    }
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.jsonl';
+    input.onchange = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            try {
+                const lines = ev.target.result.split('\n').filter(l => l.trim());
+                let matchedCount = 0;
+                let totalCount = 0;
+
+                lines.forEach(line => {
+                    try {
+                        const entry = JSON.parse(line);
+                        if (entry.status && entry.status !== 'success') return;
+                        totalCount++;
+
+                        // 解析 response 字段（可能是 JSON 字符串）
+                        let responseData = entry.response;
+                        if (typeof responseData === 'string') {
+                            responseData = responseData.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '');
+                            try { responseData = JSON.parse(responseData); } catch (_) { return; }
+                        }
+                        if (!responseData) return;
+
+                        // 查找匹配的任务：优先视频链接 > 视频标题 > nid
+                        const entryVideoUrl = stripUrlQuery((entry.videos && entry.videos[0]) || entry.video_url || '');
+                        const entryTitle = (entry.title || entry.video_title || '').trim();
+                        const entryNid = String(entry.id || entry.nid || entry.data_id || '').trim();
+
+                        let task = null;
+                        if (entryVideoUrl) {
+                            task = tasks.find(t => stripUrlQuery(t.video_url || '') === entryVideoUrl);
+                        }
+                        if (!task && entryTitle) {
+                            task = tasks.find(t => (t.id || '').trim() === entryTitle);
+                        }
+                        if (!task && entryNid) {
+                            task = tasks.find(t =>
+                                String(t.rawId || '').trim() === entryNid ||
+                                String(t.id || '').trim() === entryNid
+                            );
+                        }
+                        if (!task) return;
+
+                        // 初始化 autoEvals 数组
+                        if (!task.autoEvals) {
+                            task.autoEvals = (task.model_outputs || [{}]).map(() => null);
+                        }
+
+                        // 匹配模型名称写入对应组，否则写入所有组
+                        const modelName = entry.model || '';
+                        let written = false;
+                        if (modelName && task.model_names) {
+                            task.model_names.forEach((name, gi) => {
+                                if (name === modelName) {
+                                    task.autoEvals[gi] = responseData;
+                                    written = true;
+                                }
+                            });
+                        }
+                        if (!written) {
+                            for (let gi = 0; gi < task.autoEvals.length; gi++) {
+                                if (!task.autoEvals[gi]) task.autoEvals[gi] = responseData;
+                            }
+                        }
+
+                        // 预填 audiovisualReviews（仅当无人工评审时）
+                        if (!task.audiovisualReviews) {
+                            task.audiovisualReviews = (task.model_outputs || [{}]).map(() => null);
+                        }
+                        const groupCount = task.model_outputs?.length || 1;
+                        for (let gi = 0; gi < groupCount; gi++) {
+                            const ev = task.autoEvals[gi];
+                            if (!ev || task.audiovisualReviews[gi]) continue;
+                            const evalMap = {
+                                overall_quality:          ev.audiovisual_integration?.detail_quality || ev.visual_integration?.detail_quality,
+                                processing_elements:      ev.vision_quality?.visual_processing_elements,
+                                processing_elements_time: ev.vision_quality?.visual_processing_elements,
+                                composition:              ev.vision_quality?.composition,
+                                composition_time:         ev.vision_quality?.composition,
+                                person:                   ev.content_subject?.man_negative_content,
+                                person_time:              ev.content_subject?.man_negative_content,
+                                creature:                 ev.content_subject?.creature_negative_content,
+                                creature_time:            ev.content_subject?.creature_negative_content,
+                                info_attributes:          ev.information?.information_attributes,
+                                questionable_info:        ev.information?.questionable_info,
+                                geographic_info:          ev.information?.geographic_info,
+                                timeliness_info:          ev.information?.timeliness_info,
+                                vulgar_intent:            ev.intent?.vulgar_intent,
+                                promotional_intent:       Array.isArray(ev.intent?.promotional_intent) ? ev.intent.promotional_intent[0] : ev.intent?.promotional_intent,
+                                promotional_intent_time:  Array.isArray(ev.intent?.promotional_intent) ? ev.intent.promotional_intent[0] : ev.intent?.promotional_intent,
+                                immoral_values:           ev.values?.immoral_values
+                            };
+                            const ratings = {};
+                            const notes = {};
+                            AUDIOVISUAL_DIMENSIONS.forEach(dim => {
+                                const d = evalMap[dim.key];
+                                if (!d) { ratings[dim.key] = -1; notes[dim.key] = ''; return; }
+                                const isTime = dim.key.endsWith('_time');
+                                ratings[dim.key] = isTime ? (d['time得分'] ?? -1) : (d['得分'] ?? -1);
+                                notes[dim.key] = isTime ? (d['time理由'] || d['time描述'] || '') : (d['理由'] || d['描述'] || '');
+                            });
+                            task.audiovisualReviews[gi] = {
+                                mode: 'audiovisual',
+                                ratings: { ...ratings },
+                                notes: { ...notes },
+                                completed: Object.values(ratings).some(r => r >= 0),
+                                timestamp: new Date().toISOString()
+                            };
+                        }
+                        matchedCount++;
+                    } catch (lineErr) {
+                        console.warn('自动评估行解析失败:', lineErr);
+                    }
+                });
+
+                saveToLocalStorage();
+                renderAudiovisualContent();
                 loadReviewForCurrentGroup();
                 updateProgress();
                 renderTaskList();
