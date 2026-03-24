@@ -2305,18 +2305,24 @@ function showUpdateBanner(version, downloadUrl) {
     const banner = document.createElement('div');
     banner.id = 'update-banner';
     banner.className = 'fixed top-0 left-0 right-0 z-[9999] bg-blue-500 text-white text-sm px-4 py-2 flex items-center justify-center gap-3';
-    banner.innerHTML = `
-        <span class="mdi mdi-update text-lg"></span>
-        <span>有新版本可用 (v${version})</span>
-        <button onclick="downloadUpdate('${downloadUrl}')"
-                class="px-3 py-0.5 bg-white text-blue-600 rounded-full text-xs font-semibold hover:bg-blue-50 transition-colors">
-            下载更新
-        </button>
-        <button onclick="this.parentElement.remove()"
-                class="ml-2 text-white/70 hover:text-white transition-colors">
-            <span class="mdi mdi-close"></span>
-        </button>
-    `;
+
+    const icon = document.createElement('span');
+    icon.className = 'mdi mdi-update text-lg';
+
+    const label = document.createElement('span');
+    label.textContent = `有新版本可用 (v${version})`;
+
+    const dlBtn = document.createElement('button');
+    dlBtn.className = 'px-3 py-0.5 bg-white text-blue-600 rounded-full text-xs font-semibold hover:bg-blue-50 transition-colors';
+    dlBtn.textContent = '下载更新';
+    dlBtn.addEventListener('click', () => downloadUpdate(downloadUrl));
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'ml-2 text-white/70 hover:text-white transition-colors';
+    closeBtn.innerHTML = '<span class="mdi mdi-close"></span>';
+    closeBtn.addEventListener('click', () => banner.remove());
+
+    banner.append(icon, label, dlBtn, closeBtn);
     document.body.prepend(banner);
 }
 window.showUpdateBanner = showUpdateBanner;
