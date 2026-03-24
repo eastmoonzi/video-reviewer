@@ -504,6 +504,11 @@
 
                         <!-- Profile Content -->
                         <div id="profile-mode-content" class="hidden flex flex-col flex-1 overflow-hidden p-6">
+                            <div class="flex items-center justify-end mb-2 flex-shrink-0">
+                                <button onclick="importProfileAutoEval()" class="px-3 py-1 text-xs text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-full transition-colors flex items-center gap-1" title="导入全篇画像自动评估结果（JSONL）">
+                                    <span class="mdi mdi-file-import text-sm"></span>导入自动评估
+                                </button>
+                            </div>
                             <div id="profile-content" class="space-y-6 overflow-y-auto no-scrollbar pb-32"></div>
                         </div>
 

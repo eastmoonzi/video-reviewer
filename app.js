@@ -4,6 +4,54 @@
 // ============================================
 console.log('%c[app.js] 脚本已加载 ' + new Date().toLocaleTimeString(), 'color:green;font-weight:bold');
 
+// ============================================
+// IndexedDB 存储（替代 localStorage 存大数据）
+// ============================================
+const idb = (() => {
+    const DB_NAME = 'vrp-store';
+    const STORE_NAME = 'workspace-data';
+    let _db = null;
+
+    function open() {
+        if (_db) return Promise.resolve(_db);
+        return new Promise((resolve, reject) => {
+            const req = indexedDB.open(DB_NAME, 1);
+            req.onupgradeneeded = () => req.result.createObjectStore(STORE_NAME);
+            req.onsuccess = () => { _db = req.result; resolve(_db); };
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    function set(key, value) {
+        return open().then(db => new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE_NAME, 'readwrite');
+            tx.objectStore(STORE_NAME).put(value, key);
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+        }));
+    }
+
+    function get(key) {
+        return open().then(db => new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE_NAME, 'readonly');
+            const req = tx.objectStore(STORE_NAME).get(key);
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+        }));
+    }
+
+    function del(key) {
+        return open().then(db => new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE_NAME, 'readwrite');
+            tx.objectStore(STORE_NAME).delete(key);
+            tx.oncomplete = () => resolve();
+            tx.onerror = () => reject(tx.error);
+        }));
+    }
+
+    return { open, set, get, del };
+})();
+
 // 全局状态
 const state = {
     // 工作区
@@ -181,13 +229,13 @@ const elements = {
 // ============================================
 // 初始化
 // ============================================
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     console.log('初始化开始...');
     initElements();
     console.log('视频播放器元素:', elements.videoPlayer);
     initEventListeners();
     migrateToWorkspaces();
-    loadFromLocalStorage();
+    await loadFromLocalStorage();
     renderWorkspaceSwitcher();
     updateUI();
     restoreSidebarState();
@@ -214,6 +262,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // 强制清除所有数据（用于调试）
 function forceReset() {
+    // 清理 IndexedDB
+    indexedDB.deleteDatabase('vrp-store');
     // 清理所有工作区相关的 localStorage
     Object.keys(localStorage).forEach(key => {
         if (key.startsWith('ws:') || key === 'ws-registry' || key === 'ws-active') {
@@ -296,7 +346,7 @@ function createWorkspace(name) {
     switchWorkspace(id);
 }
 
-function switchWorkspace(wsId) {
+async function switchWorkspace(wsId) {
     // 保存当前工作区数据
     if (state.currentWorkspaceId) {
         saveToLocalStorage();
@@ -318,7 +368,7 @@ function switchWorkspace(wsId) {
     saveWorkspaceRegistry();
 
     // 加载新工作区数据
-    loadFromLocalStorage();
+    await loadFromLocalStorage();
 
     // 刷新 UI（保持当前审核模式不变）
     renderWorkspaceSwitcher();
@@ -334,8 +384,11 @@ function deleteWorkspace(wsId) {
     const ws = state.workspaces.find(w => w.id === wsId);
     if (!confirm(`确定删除工作区「${ws.name}」？所有审查数据将丢失！`)) return;
 
-    ['segment-tasks', 'segment-index', 'profile-tasks', 'profile-index', 'audiovisual-tasks', 'audiovisual-index', 'review-mode'].forEach(suffix => {
+    ['segment-index', 'profile-index', 'audiovisual-index', 'review-mode'].forEach(suffix => {
         localStorage.removeItem(getWorkspaceKey(wsId, suffix));
+    });
+    ['segment-tasks', 'profile-tasks', 'audiovisual-tasks'].forEach(suffix => {
+        idb.del(getWorkspaceKey(wsId, suffix)).catch(() => {});
     });
     state.workspaces = state.workspaces.filter(w => w.id !== wsId);
     saveWorkspaceRegistry();
@@ -2596,7 +2649,22 @@ function quickParseJson(str) {
     // 6. 直接 JSON.parse
     try { return JSON.parse(str); } catch (_) {}
 
-    // 6.5 全角/中文标点归一化后重试
+    // 6.5 修复 LLM 输出中缺失的逗号：}{ → },{  ][ → ],[
+    //     JSON 字符串不能包含字面换行符，所以 }\n{ 一定是结构层的分隔
+    try {
+        let fixed = str.replace(/\}(\s*[\r\n]+\s*)\{/g, '},$1{')
+                       .replace(/\](\s*[\r\n]+\s*)\[/g, '],$1[');
+        if (fixed !== str) {
+            try { return JSON.parse(fixed); } catch (_) {}
+        }
+        // 更激进：不要求换行（如果 }{ 在字符串内部，修复后仍会是非法 JSON，JSON.parse 会失败，安全回退）
+        fixed = str.replace(/\}(\s*)\{/g, '},$1{').replace(/\](\s*)\[/g, '],$1[');
+        if (fixed !== str) {
+            try { return JSON.parse(fixed); } catch (_) {}
+        }
+    } catch (_) {}
+
+    // 6.7 全角/中文标点归一化后重试
     //     ""/""→"  ：→:  ，→,（仅在 JSON 值外部替换冒号和逗号会破坏文本，
     //     所以只替换引号，冒号仅替换紧跟引号的模式）
     try {
@@ -2772,6 +2840,180 @@ function normalizeAutoEval(parsed) {
 
     return matched ? result : parsed;
 }
+
+// 全篇画像自动评估：中文维度名 → 内部 key 映射
+const PROFILE_EVAL_CN_MAP = {
+    '表达形式': 'narrative_type',
+    '叙事类型': 'narrative_type',
+    '画面类型': 'visual_type',
+    '摘要': 'summary',
+    '内容总结': 'summary',
+    '创作意图': 'intent_type',
+    '主题连贯性': 'topic_consistency',
+    '主题一致性': 'topic_consistency',
+    '核心主张': 'core_claim',
+    '核心观点': 'core_claim',
+    '情感基调': 'emotion_type',
+    '情感类型': 'emotion_type'
+};
+
+// 归一化全篇画像自动评估数据
+function normalizeProfileAutoEval(parsed) {
+    if (!parsed || typeof parsed !== 'object') return null;
+    const evalData = parsed['评估结果'] || parsed;
+    if (!evalData || typeof evalData !== 'object') return null;
+
+    const result = {};
+    let matched = false;
+    for (const [dimName, dimData] of Object.entries(evalData)) {
+        const key = PROFILE_EVAL_CN_MAP[dimName];
+        if (!key) continue;
+        if (dimData && typeof dimData === 'object') {
+            result[key] = {
+                score: dimData['得分'] ?? null,
+                reason: dimData['理由'] || dimData['描述'] || ''
+            };
+            matched = true;
+        }
+    }
+    // 保留总体评分/评价/GT改进建议
+    if (parsed['总体评分']) result._totalScore = parsed['总体评分'];
+    if (parsed['总体评价']) result._totalComment = parsed['总体评价'];
+    if (parsed['GT改进建议']) result._gtSuggestion = parsed['GT改进建议'];
+    return matched ? result : null;
+}
+
+// 导入全篇画像自动评估结果（JSONL 文件）
+function importProfileAutoEval() {
+    const tasks = getTasks();
+    if (tasks.length === 0) {
+        alert('请先导入任务数据，再导入自动评估结果');
+        return;
+    }
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.jsonl';
+    input.onchange = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            try {
+                const lines = ev.target.result.split('\n').filter(l => l.trim());
+                let matchedCount = 0;
+                let totalCount = 0;
+
+                lines.forEach(line => {
+                    try {
+                        const entry = JSON.parse(line);
+                        if (entry.status && entry.status !== 'success') return;
+                        totalCount++;
+
+                        // 解析 response 字段（可能是 JSON 字符串）
+                        let responseData = entry.response;
+                        if (typeof responseData === 'string') {
+                            // 去掉 markdown 代码块包裹
+                            responseData = responseData.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/, '');
+                            try { responseData = JSON.parse(responseData); } catch (_) { return; }
+                        }
+                        if (!responseData) return;
+
+                        const normalized = normalizeProfileAutoEval(responseData);
+                        if (!normalized) return;
+
+                        // 查找匹配的任务：优先视频链接 > 视频标题 > nid
+                        const entryVideoUrl = stripUrlQuery((entry.videos && entry.videos[0]) || entry.video_url || '');
+                        const entryTitle = (entry.title || entry.video_title || '').trim();
+                        const entryNid = String(entry.id || entry.nid || entry.data_id || '').trim();
+
+                        let task = null;
+                        if (entryVideoUrl) {
+                            task = tasks.find(t => stripUrlQuery(t.video_url || '') === entryVideoUrl);
+                        }
+                        if (!task && entryTitle) {
+                            task = tasks.find(t => (t.id || '').trim() === entryTitle);
+                        }
+                        if (!task && entryNid) {
+                            task = tasks.find(t =>
+                                String(t.rawId || '').trim() === entryNid ||
+                                String(t.id || '').trim() === entryNid
+                            );
+                        }
+                        if (!task) return;
+
+                        // 初始化 profileAutoEvals 数组
+                        if (!task.profileAutoEvals) {
+                            task.profileAutoEvals = (task.model_outputs || [{}]).map(() => null);
+                        }
+
+                        // 匹配模型名称写入对应组，否则写入所有组
+                        const modelName = entry.model || '';
+                        let written = false;
+                        if (modelName && task.model_names) {
+                            task.model_names.forEach((name, gi) => {
+                                if (name === modelName) {
+                                    task.profileAutoEvals[gi] = normalized;
+                                    written = true;
+                                }
+                            });
+                        }
+                        if (!written) {
+                            // 写入所有组
+                            for (let gi = 0; gi < task.profileAutoEvals.length; gi++) {
+                                if (!task.profileAutoEvals[gi]) task.profileAutoEvals[gi] = normalized;
+                            }
+                        }
+
+                        // 预填 profileReviews（仅当无人工评审时）
+                        if (!task.profileReviews) {
+                            task.profileReviews = (task.model_outputs || [{}]).map(() => null);
+                        }
+                        const groupCount = task.model_outputs?.length || 1;
+                        for (let gi = 0; gi < groupCount; gi++) {
+                            const ev = task.profileAutoEvals[gi];
+                            if (!ev || task.profileReviews[gi]) continue;
+                            const ratings = {};
+                            const notes = {};
+                            PROFILE_DIMENSIONS.forEach(dim => {
+                                const d = ev[dim.key];
+                                if (d) {
+                                    ratings[dim.key] = d.score ?? -1;
+                                    notes[dim.key] = d.reason || '';
+                                } else {
+                                    ratings[dim.key] = -1;
+                                    notes[dim.key] = '';
+                                }
+                            });
+                            task.profileReviews[gi] = {
+                                mode: 'profile',
+                                ratings,
+                                notes,
+                                completed: Object.values(ratings).some(r => r >= 0),
+                                timestamp: new Date().toISOString()
+                            };
+                        }
+                        matchedCount++;
+                    } catch (lineErr) {
+                        console.warn('自动评估行解析失败:', lineErr);
+                    }
+                });
+
+                saveToLocalStorage();
+                renderProfileContent();
+                loadReviewForCurrentGroup();
+                updateProgress();
+                renderTaskList();
+                alert(`导入完成：共 ${totalCount} 条评估数据，匹配 ${matchedCount} 个任务`);
+            } catch (err) {
+                alert('文件解析失败: ' + err.message);
+                console.error('自动评估导入错误:', err);
+            }
+        };
+        reader.readAsText(file, 'UTF-8');
+    };
+    input.click();
+}
+window.importProfileAutoEval = importProfileAutoEval;
 
 // 从Excel单元格提取URL（处理超链接格式）
 function extractUrlFromCell(worksheet, cellAddress) {
@@ -3214,6 +3456,39 @@ function processImportData(data) {
             }
         }
 
+        // 如果有自动评估数据且为全篇画像格式，逐组写入 profileAutoEvals / profileReviews
+        if (task.autoEvals && task.autoEvals.length > 0) {
+            const groupCount = task.model_outputs?.length || 1;
+            for (let gi = 0; gi < groupCount; gi++) {
+                const raw = task.autoEvals[gi];
+                if (!raw) continue;
+                const pev = normalizeProfileAutoEval(raw);
+                if (!pev) continue;
+                // 存储到 profileAutoEvals
+                if (!task.profileAutoEvals) {
+                    task.profileAutoEvals = task.model_outputs.map(() => null);
+                }
+                task.profileAutoEvals[gi] = pev;
+                // 预填 profileReviews（仅当尚无人工评审时）
+                if (!task.profileReviews[gi]) {
+                    const ratings = {};
+                    const notes = {};
+                    PROFILE_DIMENSIONS.forEach(dim => {
+                        const d = pev[dim.key];
+                        ratings[dim.key] = d?.score ?? -1;
+                        notes[dim.key] = d?.reason || '';
+                    });
+                    task.profileReviews[gi] = {
+                        mode: 'profile',
+                        ratings,
+                        notes,
+                        completed: Object.values(ratings).some(r => r >= 0),
+                        timestamp: new Date().toISOString()
+                    };
+                }
+            }
+        }
+
         // 如果 Excel 中有已有评分/备注，预填到 profileReviews
         if (task.importedReview) {
             const { scores, notes } = task.importedReview;
@@ -3460,44 +3735,52 @@ function exportResults() {
 function saveToLocalStorage() {
     const wsId = state.currentWorkspaceId;
     if (!wsId) return;
-    localStorage.setItem(getWorkspaceKey(wsId, 'segment-tasks'), JSON.stringify(state.segmentTasks));
+    // 索引值很小，仍用 localStorage
     localStorage.setItem(getWorkspaceKey(wsId, 'segment-index'), state.segmentTaskIndex);
-    localStorage.setItem(getWorkspaceKey(wsId, 'profile-tasks'), JSON.stringify(state.profileTasks));
     localStorage.setItem(getWorkspaceKey(wsId, 'profile-index'), state.profileTaskIndex);
-    localStorage.setItem(getWorkspaceKey(wsId, 'audiovisual-tasks'), JSON.stringify(state.audiovisualTasks));
     localStorage.setItem(getWorkspaceKey(wsId, 'audiovisual-index'), state.audiovisualTaskIndex);
+    // 大数据存入 IndexedDB（fire-and-forget）
+    idb.set(getWorkspaceKey(wsId, 'segment-tasks'), state.segmentTasks).catch(e => console.error('IDB save segment error:', e));
+    idb.set(getWorkspaceKey(wsId, 'profile-tasks'), state.profileTasks).catch(e => console.error('IDB save profile error:', e));
+    idb.set(getWorkspaceKey(wsId, 'audiovisual-tasks'), state.audiovisualTasks).catch(e => console.error('IDB save audiovisual error:', e));
 }
 
-function loadFromLocalStorage() {
+async function loadFromLocalStorage() {
     const wsId = state.currentWorkspaceId;
     if (!wsId) return;
     try {
-        const segmentTasks = localStorage.getItem(getWorkspaceKey(wsId, 'segment-tasks'));
+        // 索引从 localStorage 读取
         const segmentIndex = localStorage.getItem(getWorkspaceKey(wsId, 'segment-index'));
-        if (segmentTasks) {
-            state.segmentTasks = JSON.parse(segmentTasks);
-        }
-        if (segmentIndex !== null) {
-            state.segmentTaskIndex = parseInt(segmentIndex);
-        }
-
-        const profileTasks = localStorage.getItem(getWorkspaceKey(wsId, 'profile-tasks'));
+        if (segmentIndex !== null) state.segmentTaskIndex = parseInt(segmentIndex);
         const profileIndex = localStorage.getItem(getWorkspaceKey(wsId, 'profile-index'));
-        if (profileTasks) {
-            state.profileTasks = JSON.parse(profileTasks);
-        }
-        if (profileIndex !== null) {
-            state.profileTaskIndex = parseInt(profileIndex);
-        }
-
-        const audiovisualTasks = localStorage.getItem(getWorkspaceKey(wsId, 'audiovisual-tasks'));
+        if (profileIndex !== null) state.profileTaskIndex = parseInt(profileIndex);
         const audiovisualIndex = localStorage.getItem(getWorkspaceKey(wsId, 'audiovisual-index'));
-        if (audiovisualTasks) {
-            state.audiovisualTasks = JSON.parse(audiovisualTasks);
-        }
-        if (audiovisualIndex !== null) {
-            state.audiovisualTaskIndex = parseInt(audiovisualIndex);
-        }
+        if (audiovisualIndex !== null) state.audiovisualTaskIndex = parseInt(audiovisualIndex);
+
+        // 大数据从 IndexedDB 读取，兼容旧 localStorage 数据迁移
+        const loadTasks = async (suffix, fallbackState) => {
+            const key = getWorkspaceKey(wsId, suffix);
+            let data = await idb.get(key);
+            if (data) return data;
+            // 从 localStorage 迁移旧数据
+            const raw = localStorage.getItem(key);
+            if (raw) {
+                data = JSON.parse(raw);
+                await idb.set(key, data);
+                localStorage.removeItem(key);
+                return data;
+            }
+            return null;
+        };
+
+        const [seg, prof, av] = await Promise.all([
+            loadTasks('segment-tasks'),
+            loadTasks('profile-tasks'),
+            loadTasks('audiovisual-tasks')
+        ]);
+        if (seg) state.segmentTasks = seg;
+        if (prof) state.profileTasks = prof;
+        if (av) state.audiovisualTasks = av;
 
         setTimeout(() => {
             const currentTasks = getTasks();
@@ -3837,52 +4120,58 @@ function renderProfileContent() {
     
     // 构建展示内容
     const sections = [];
-    
+    const pev = task.profileAutoEvals?.[state.currentOutputGroup] || null; // 全篇画像自动评估数据
+
     // 叙事类型
     if (profileData.narrative_type) {
-        sections.push(renderProfileSection('叙事类型', 'mdi-book-open-variant', 'blue', 
-            profileData.narrative_type.tag, profileData.narrative_type.reason));
+        sections.push(renderProfileSection('叙事类型', 'mdi-book-open-variant', 'blue',
+            profileData.narrative_type.tag, profileData.narrative_type.reason, pev?.narrative_type));
     }
-    
+
     // 画面类型
     if (profileData.visual_type) {
-        const visualTag = typeof profileData.visual_type === 'object' 
-            ? `主要: ${profileData.visual_type['主要画面类型'] || profileData.visual_type.main || '-'}, 次要: ${profileData.visual_type['次要画面类型'] || profileData.visual_type.secondary || '-'}`
-            : profileData.visual_type;
-        sections.push(renderProfileSection('画面类型', 'mdi-image', 'green', visualTag, null));
+        if (typeof profileData.visual_type === 'object' && profileData.visual_type.tag) {
+            sections.push(renderProfileSection('画面类型', 'mdi-image', 'green',
+                profileData.visual_type.tag, profileData.visual_type.reason, pev?.visual_type));
+        } else {
+            const visualTag = typeof profileData.visual_type === 'object'
+                ? `主要: ${profileData.visual_type['主要画面类型'] || profileData.visual_type.main || '-'}, 次要: ${profileData.visual_type['次要画面类型'] || profileData.visual_type.secondary || '-'}`
+                : profileData.visual_type;
+            sections.push(renderProfileSection('画面类型', 'mdi-image', 'green', visualTag, null, pev?.visual_type));
+        }
     }
-    
+
     // 内容总结
     if (profileData.summary) {
-        sections.push(renderProfileSection('内容总结', 'mdi-text-box', 'purple', null, profileData.summary));
+        sections.push(renderProfileSection('内容总结', 'mdi-text-box', 'purple', null, profileData.summary, pev?.summary));
     }
-    
+
     // 创作意图
     if (profileData.intent_type) {
-        sections.push(renderProfileSection('创作意图', 'mdi-target', 'orange', 
-            profileData.intent_type.tag, profileData.intent_type.reason));
+        sections.push(renderProfileSection('创作意图', 'mdi-target', 'orange',
+            profileData.intent_type.tag, profileData.intent_type.reason, pev?.intent_type));
     }
-    
+
     // 主题一致性
     if (profileData.topic_consistency) {
-        sections.push(renderProfileSection('主题一致性', 'mdi-bullseye-arrow', 'teal', 
-            profileData.topic_consistency.tag, profileData.topic_consistency.reason));
+        sections.push(renderProfileSection('主题一致性', 'mdi-bullseye-arrow', 'teal',
+            profileData.topic_consistency.tag, profileData.topic_consistency.reason, pev?.topic_consistency));
     }
-    
+
     // 核心观点
     if (profileData.core_claim) {
-        const claims = Array.isArray(profileData.core_claim) 
-            ? profileData.core_claim.join('；') 
+        const claims = Array.isArray(profileData.core_claim)
+            ? profileData.core_claim.join('；')
             : profileData.core_claim;
-        sections.push(renderProfileSection('核心观点', 'mdi-lightbulb', 'yellow', null, claims));
+        sections.push(renderProfileSection('核心观点', 'mdi-lightbulb', 'yellow', null, claims, pev?.core_claim));
     }
-    
+
     // 情感类型
     if (profileData.emotion_type) {
-        sections.push(renderProfileSection('情感类型', 'mdi-emoticon', 'pink', 
-            profileData.emotion_type.tag, profileData.emotion_type.reason));
+        sections.push(renderProfileSection('情感类型', 'mdi-emoticon', 'pink',
+            profileData.emotion_type.tag, profileData.emotion_type.reason, pev?.emotion_type));
     }
-    
+
     container.innerHTML = sections.length > 0
         ? sections.join('')
         : '<div class="text-gray-400 text-center py-8">暂无全篇语义画像数据</div>';
@@ -3895,7 +4184,22 @@ function renderProfileContent() {
 }
 
 // Ive Style: Unified Gray Profile Section - No colorful backgrounds
-function renderProfileSection(title, icon, color, tag, content) {
+function renderProfileSection(title, icon, color, tag, content, evalInfo) {
+    // evalInfo: { score, reason } 自动评估数据（可选）
+    let evalHtml = '';
+    if (evalInfo) {
+        const parts = [];
+        if (evalInfo.score != null) {
+            const scoreColor = evalInfo.score >= 2 ? 'text-green-600' : evalInfo.score >= 1 ? 'text-yellow-600' : 'text-red-500';
+            parts.push(`<span class="font-semibold ${scoreColor}">${evalInfo.score}分</span>`);
+        }
+        if (evalInfo.reason) parts.push(`<span class="text-gray-500">${escapeHTML(evalInfo.reason)}</span>`);
+        if (parts.length > 0) {
+            evalHtml = `<div class="mt-2 pt-2 border-t border-dashed border-gray-200 text-xs leading-relaxed space-y-0.5">
+                <span class="text-[10px] font-bold text-blue-400 uppercase mr-1">自动评估</span>${parts.join(' · ')}
+            </div>`;
+        }
+    }
     return `
         <div class="p-4 rounded-2xl bg-black/[0.03] hover:bg-black/[0.05] transition-all duration-200">
             <div class="flex items-center justify-between mb-2">
@@ -3906,6 +4210,7 @@ function renderProfileSection(title, icon, color, tag, content) {
                 ${tag ? `<span class="px-2.5 py-1 bg-black text-white text-[11px] font-medium rounded-full">${escapeHTML(tag)}</span>` : ''}
             </div>
             ${content ? `<p class="text-[15px] text-gray-700 leading-relaxed">${escapeHTML(content)}</p>` : ''}
+            ${evalHtml}
         </div>
     `;
 }
@@ -4539,7 +4844,30 @@ loadReviewForCurrentGroup = function() {
                 if (noteInput) { noteInput.value = state.profileNotes[dim.key] || ''; }
             });
         } else {
+            // 无人工评审，尝试从全篇画像自动评估预填
             resetProfileRatings();
+            const pev = task.profileAutoEvals?.[state.currentOutputGroup];
+            if (pev) {
+                PROFILE_DIMENSIONS.forEach(dim => {
+                    const d = pev[dim.key];
+                    if (!d) return;
+                    const score = d.score ?? -1;
+                    const reason = d.reason || '';
+                    if (score >= 0) {
+                        state.profileRatings[dim.key] = score;
+                        document.querySelectorAll(`.rating-group[data-dimension="${dim.key}"][data-mode="profile"]`).forEach(group => {
+                            highlightProfileStars(group, score);
+                        });
+                    }
+                    if (reason) {
+                        state.profileNotes[dim.key] = reason;
+                        const dockInput = document.getElementById(`dock-note-${dim.key}`);
+                        if (dockInput) { dockInput.value = reason; }
+                        const noteInput = document.getElementById(`note-${dim.key}`);
+                        if (noteInput) { noteInput.value = reason; }
+                    }
+                });
+            }
         }
     }
 };
@@ -5363,7 +5691,7 @@ function renderComparisonColumn(bodyEl, task, groupIndex) {
             html = generateSegmentKeyframeHTML(segments);
         }
     } else if (mode === 'profile') {
-        html = generateProfileHTML(output.profile || null);
+        html = generateProfileHTML(output.profile || null, task.profileAutoEvals?.[groupIndex]);
     } else if (mode === 'audiovisual') {
         html = generateAudiovisualHTML(output.audiovisual || null, task.autoEvals?.[groupIndex] || task.autoEval);
     }
@@ -5424,40 +5752,46 @@ function generateSegmentKeyframeHTML(segments) {
 }
 
 // 生成 Profile 内容 HTML
-function generateProfileHTML(profileData) {
+function generateProfileHTML(profileData, profileAutoEval) {
     if (!profileData) return '';
     const sections = [];
+    const pev = profileAutoEval || null;
 
     if (profileData.narrative_type) {
         sections.push(renderProfileSection('叙事类型', 'mdi-book-open-variant', 'blue',
-            profileData.narrative_type.tag, profileData.narrative_type.reason));
+            profileData.narrative_type.tag, profileData.narrative_type.reason, pev?.narrative_type));
     }
     if (profileData.visual_type) {
-        const visualTag = typeof profileData.visual_type === 'object'
-            ? `主要: ${profileData.visual_type['主要画面类型'] || profileData.visual_type.main || '-'}, 次要: ${profileData.visual_type['次要画面类型'] || profileData.visual_type.secondary || '-'}`
-            : profileData.visual_type;
-        sections.push(renderProfileSection('画面类型', 'mdi-image', 'green', visualTag, null));
+        if (typeof profileData.visual_type === 'object' && profileData.visual_type.tag) {
+            sections.push(renderProfileSection('画面类型', 'mdi-image', 'green',
+                profileData.visual_type.tag, profileData.visual_type.reason, pev?.visual_type));
+        } else {
+            const visualTag = typeof profileData.visual_type === 'object'
+                ? `主要: ${profileData.visual_type['主要画面类型'] || profileData.visual_type.main || '-'}, 次要: ${profileData.visual_type['次要画面类型'] || profileData.visual_type.secondary || '-'}`
+                : profileData.visual_type;
+            sections.push(renderProfileSection('画面类型', 'mdi-image', 'green', visualTag, null, pev?.visual_type));
+        }
     }
     if (profileData.summary) {
-        sections.push(renderProfileSection('内容总结', 'mdi-text-box', 'purple', null, profileData.summary));
+        sections.push(renderProfileSection('内容总结', 'mdi-text-box', 'purple', null, profileData.summary, pev?.summary));
     }
     if (profileData.intent_type) {
         sections.push(renderProfileSection('创作意图', 'mdi-target', 'orange',
-            profileData.intent_type.tag, profileData.intent_type.reason));
+            profileData.intent_type.tag, profileData.intent_type.reason, pev?.intent_type));
     }
     if (profileData.topic_consistency) {
         sections.push(renderProfileSection('主题一致性', 'mdi-bullseye-arrow', 'teal',
-            profileData.topic_consistency.tag, profileData.topic_consistency.reason));
+            profileData.topic_consistency.tag, profileData.topic_consistency.reason, pev?.topic_consistency));
     }
     if (profileData.core_claim) {
         const claims = Array.isArray(profileData.core_claim)
             ? profileData.core_claim.join('；')
             : profileData.core_claim;
-        sections.push(renderProfileSection('核心观点', 'mdi-lightbulb', 'yellow', null, claims));
+        sections.push(renderProfileSection('核心观点', 'mdi-lightbulb', 'yellow', null, claims, pev?.core_claim));
     }
     if (profileData.emotion_type) {
         sections.push(renderProfileSection('情感类型', 'mdi-emoticon', 'pink',
-            profileData.emotion_type.tag, profileData.emotion_type.reason));
+            profileData.emotion_type.tag, profileData.emotion_type.reason, pev?.emotion_type));
     }
 
     return sections.join('');
