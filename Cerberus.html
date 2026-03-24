@@ -3433,14 +3433,11 @@ function convertJsonlToTask(obj, index) {
         }
     }
 
-    // response 可能是字符串（如被 <json_output> 标签包裹），需要先解析
-    let rawResponseStr = null;  // 记录原始字符串，解析失败时用于 _parseError
     if (typeof response === 'string') {
         const respStr = response.trim();
         if (!respStr) {
             response = null;
         } else {
-            rawResponseStr = respStr;
             response = quickParseJson(respStr);
         }
     }
@@ -3452,15 +3449,9 @@ function convertJsonlToTask(obj, index) {
 
     // response 可能是 null、数组或单个对象
     if (!response) {
-        // response 在前、cot 在后，全部保留不截断，供显示和 LLM 修复
-        const rawParts = [];
-        if (rawResponseStr) rawParts.push(rawResponseStr);
-        if (obj.cot) rawParts.push(typeof obj.cot === 'string' ? obj.cot : JSON.stringify(obj.cot));
-        const fullRaw = rawParts.join('\n\n---\n\n');
-
-        if (fullRaw.trim()) {
+        if (rawText.trim()) {
             // 有原始内容但解析失败 → _parseError，供 LLM 修复
-            const errorOutput = { _parseError: true, raw: fullRaw };
+            const errorOutput = { _parseError: true, _raw: rawText };
             task.model_output = errorOutput;
             task.model_outputs = [errorOutput];
             task.model_names = [obj.model_name || '默认'];
@@ -3468,8 +3459,8 @@ function convertJsonlToTask(obj, index) {
             return task;
         }
         // 真正什么都没有 → 空任务（只有视频）
-        task.model_output = { segments: [] };
-        task.model_outputs = [{ segments: [] }];
+        task.model_output = { segments: [], _raw: rawText };
+        task.model_outputs = [{ segments: [], _raw: rawText }];
         task.model_names = [obj.model_name || '默认'];
         task.reviews = [null];
         return task;
@@ -3486,9 +3477,7 @@ function convertJsonlToTask(obj, index) {
     }
     // 检测是否为基础音画质量格式
     if (response.vision_quality || response.audiovisual_integration || response.visual_integration || response.content_subject) {
-        const avOutput = { audiovisual: response };
-        if (rawResponseStr) avOutput._raw = rawResponseStr;
-        if (obj.cot) avOutput._raw = (avOutput._raw || '') + '\n\n--- COT ---\n\n' + obj.cot;
+        const avOutput = { audiovisual: response, _raw: rawText };
         task.model_output = avOutput;
         task.model_outputs = [avOutput];
         task.model_names = [obj.model_name || '默认'];
@@ -3611,9 +3600,7 @@ function convertJsonlToTask(obj, index) {
         };
     });
 
-    const output = { segments };
-    if (rawResponseStr) output._raw = rawResponseStr;
-    if (obj.cot) output._raw = (output._raw || '') + '\n\n--- COT ---\n\n' + obj.cot;
+    const output = { segments, _raw: rawText };
     // 如果同时包含画像数据（多代码块合并），一并存入
     if (profileData) {
         const gp = profileData.global_profile || profileData;
