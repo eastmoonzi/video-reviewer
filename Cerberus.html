@@ -4304,6 +4304,18 @@ function quickParseJson(str) {
     // 6. 直接 JSON.parse
     try { return JSON.parse(str); } catch (_) {}
 
+    // 6.3 修复多余逗号（LLM 常见：连续逗号、对象/数组/末尾的逗号）
+    try {
+        let fixed = str
+            .replace(/,(\s*,)+/g, ',')      // ,,,, → ,（连续逗号）
+            .replace(/,(\s*[}\]])/g, '$1')  // ,} 或 ,] → 去掉尾逗号
+            .replace(/,\s*$/, '');          // 末尾逗号
+        if (fixed !== str) {
+            try { return JSON.parse(fixed); } catch (_) {}
+            str = fixed; // 后续步骤继续用修复后的字符串
+        }
+    } catch (_) {}
+
     // 6.5 修复 LLM 输出中缺失的逗号：}{ → },{  ][ → ],[
     //     JSON 字符串不能包含字面换行符，所以 }\n{ 一定是结构层的分隔
     try {
@@ -7165,7 +7177,7 @@ function renderComparisonColumn(bodyEl, task, groupIndex) {
                     <span class="mdi mdi-alert text-amber-500"></span>
                     <span class="text-sm font-semibold text-amber-800">JSON 解析失败</span>
                 </div>
-                <pre class="text-xs text-gray-700 bg-white border rounded-lg p-2 overflow-auto max-h-40 whitespace-pre-wrap break-all">${escapeHTML(output._raw || '')}</pre>
+                <pre class="text-xs text-gray-700 bg-white border rounded-lg p-2 overflow-auto max-h-[60vh] whitespace-pre-wrap break-all">${escapeHTML(output._raw || '')}</pre>
             </div>`;
         return;
     }
@@ -7190,6 +7202,15 @@ function renderComparisonColumn(bodyEl, task, groupIndex) {
     }
 
     bodyEl.innerHTML = `<div class="space-y-4 text-sm leading-relaxed text-gray-600">${html || '<div class="text-gray-400 text-center py-8">暂无数据</div>'}</div>`;
+
+    if (mode === 'profile' || mode === 'audiovisual') {
+        const rawId = `comp-raw-${groupIndex}`;
+        const details = document.createElement('details');
+        details.className = 'mt-4';
+        details.innerHTML = `<summary class="text-xs text-gray-400 cursor-pointer select-none hover:text-gray-600 py-1">查看原文</summary><div id="${rawId}" class="mt-2"></div>`;
+        bodyEl.appendChild(details);
+        renderRawContent(output, rawId);
+    }
 }
 
 // 分段模式 - 文本
