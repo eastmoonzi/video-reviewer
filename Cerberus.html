@@ -1245,9 +1245,13 @@ const idb = (() => {
 
 // 全局状态
 const state = {
-    // 工作区
-    currentWorkspaceId: null,
-    workspaces: [],
+    // 工作区（每种模式独立）
+    segmentWorkspaceId: null,
+    segmentWorkspaces: [],
+    profileWorkspaceId: null,
+    profileWorkspaces: [],
+    audiovisualWorkspaceId: null,
+    audiovisualWorkspaces: [],
     // 分段语义详情任务
     segmentTasks: [],
     segmentTaskIndex: -1,
@@ -1739,7 +1743,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.log('视频播放器元素:', elements.videoPlayer);
     initEventListeners();
     migrateToWorkspaces();
-    await loadFromLocalStorage();
+    await loadAllWorkspaceData();
     renderWorkspaceSwitcher();
     updateUI();
     restoreSidebarState();
@@ -1789,55 +1793,116 @@ function forceReset() {
     state.profileTaskIndex = -1;
     state.audiovisualTasks = [];
     state.audiovisualTaskIndex = -1;
-    state.workspaces = [];
-    state.currentWorkspaceId = null;
+    state.segmentWorkspaces = []; state.segmentWorkspaceId = null;
+    state.profileWorkspaces = []; state.profileWorkspaceId = null;
+    state.audiovisualWorkspaces = []; state.audiovisualWorkspaceId = null;
     location.reload();
 }
 window.forceReset = forceReset;
 
 // ============================================
-// 工作区管理
+// 工作区管理（每种模式独立）
 // ============================================
+
+// 辅助：获取/设置当前模式的工作区列表和活跃 ID
+function getModeWorkspaces() {
+    if (state.reviewMode === 'segment') return state.segmentWorkspaces;
+    if (state.reviewMode === 'audiovisual') return state.audiovisualWorkspaces;
+    return state.profileWorkspaces;
+}
+function setModeWorkspaces(ws) {
+    if (state.reviewMode === 'segment') state.segmentWorkspaces = ws;
+    else if (state.reviewMode === 'audiovisual') state.audiovisualWorkspaces = ws;
+    else state.profileWorkspaces = ws;
+}
+function getModeWorkspaceId() {
+    if (state.reviewMode === 'segment') return state.segmentWorkspaceId;
+    if (state.reviewMode === 'audiovisual') return state.audiovisualWorkspaceId;
+    return state.profileWorkspaceId;
+}
+function setModeWorkspaceId(id) {
+    if (state.reviewMode === 'segment') state.segmentWorkspaceId = id;
+    else if (state.reviewMode === 'audiovisual') state.audiovisualWorkspaceId = id;
+    else state.profileWorkspaceId = id;
+}
+
+// 存储 key：${mode}:${wsId}:${suffix}
 function getWorkspaceKey(wsId, suffix) {
-    return `ws:${wsId}:${suffix}`;
+    return `${state.reviewMode}:${wsId}:${suffix}`;
 }
 
 function saveWorkspaceRegistry() {
-    localStorage.setItem('ws-registry', JSON.stringify(state.workspaces));
-    localStorage.setItem('ws-active', state.currentWorkspaceId);
+    const mode = state.reviewMode;
+    localStorage.setItem(`${mode}-ws-registry`, JSON.stringify(getModeWorkspaces()));
+    localStorage.setItem(`${mode}-ws-active`, getModeWorkspaceId());
 }
 
 function loadWorkspaceRegistry() {
-    const raw = localStorage.getItem('ws-registry');
-    state.workspaces = raw ? JSON.parse(raw) : [];
-    state.currentWorkspaceId = localStorage.getItem('ws-active');
+    ['segment', 'profile', 'audiovisual'].forEach(mode => {
+        const raw = localStorage.getItem(`${mode}-ws-registry`);
+        state[`${mode}Workspaces`] = raw ? JSON.parse(raw) : [];
+        state[`${mode}WorkspaceId`] = localStorage.getItem(`${mode}-ws-active`);
+    });
+}
+
+function ensureDefaultWorkspaces() {
+    ['segment', 'profile', 'audiovisual'].forEach(mode => {
+        const wsKey = `${mode}Workspaces`;
+        const idKey = `${mode}WorkspaceId`;
+        if (state[wsKey].length === 0) {
+            const id = 'ws_' + Date.now() + '_' + mode;
+            state[wsKey] = [{ id, name: '默认工作区', createdAt: Date.now() }];
+            state[idKey] = id;
+            localStorage.setItem(`${mode}-ws-registry`, JSON.stringify(state[wsKey]));
+            localStorage.setItem(`${mode}-ws-active`, id);
+        } else if (!state[idKey] || !state[wsKey].find(w => w.id === state[idKey])) {
+            state[idKey] = state[wsKey][0].id;
+            localStorage.setItem(`${mode}-ws-active`, state[idKey]);
+        }
+    });
 }
 
 function migrateToWorkspaces() {
-    if (localStorage.getItem('ws-registry')) {
+    // 已迁移到新格式
+    if (localStorage.getItem('segment-ws-registry')) {
         loadWorkspaceRegistry();
+        ensureDefaultWorkspaces();
         return;
     }
-    // 首次迁移：将旧数据移入默认工作区
-    const defaultId = 'ws_default';
-    state.workspaces = [{ id: defaultId, name: '默认工作区', createdAt: Date.now() }];
-    state.currentWorkspaceId = defaultId;
 
-    const migrations = [
-        ['video-review-segment-tasks', 'segment-tasks'],
-        ['video-review-segment-index', 'segment-index'],
-        ['video-review-profile-tasks', 'profile-tasks'],
-        ['video-review-profile-index', 'profile-index'],
-        ['review-mode', 'review-mode']
-    ];
-    migrations.forEach(([oldKey, suffix]) => {
-        const value = localStorage.getItem(oldKey);
-        if (value !== null) {
-            localStorage.setItem(getWorkspaceKey(defaultId, suffix), value);
-            localStorage.removeItem(oldKey);
-        }
+    // 从旧的单工作区格式迁移
+    const oldRegistry = localStorage.getItem('ws-registry');
+    const oldActiveId = localStorage.getItem('ws-active');
+    let oldWorkspaces = oldRegistry ? JSON.parse(oldRegistry) : null;
+
+    if (!oldWorkspaces || oldWorkspaces.length === 0) {
+        // 更旧的格式：无工作区系统
+        const id = 'ws_default';
+        oldWorkspaces = [{ id, name: '默认工作区', createdAt: Date.now() }];
+    }
+
+    // 将旧工作区列表复制给三种模式
+    ['segment', 'profile', 'audiovisual'].forEach(mode => {
+        state[`${mode}Workspaces`] = oldWorkspaces.map(w => ({ ...w }));
+        state[`${mode}WorkspaceId`] = oldActiveId || oldWorkspaces[0].id;
+        localStorage.setItem(`${mode}-ws-registry`, JSON.stringify(state[`${mode}Workspaces`]));
+        localStorage.setItem(`${mode}-ws-active`, state[`${mode}WorkspaceId`]);
+
+        // 迁移旧索引 key
+        oldWorkspaces.forEach(ws => {
+            const oldIdxKey = `ws:${ws.id}:${mode}-index`;
+            const val = localStorage.getItem(oldIdxKey);
+            if (val !== null) {
+                localStorage.setItem(`${mode}:${ws.id}:index`, val);
+                localStorage.removeItem(oldIdxKey);
+            }
+        });
     });
-    saveWorkspaceRegistry();
+
+    // 迁移 review-mode（旧的 ws 级 key）
+    if (oldActiveId) localStorage.removeItem(`ws:${oldActiveId}:review-mode`);
+    localStorage.removeItem('ws-registry');
+    localStorage.removeItem('ws-active');
 }
 
 function createWorkspace(name) {
@@ -1847,60 +1912,52 @@ function createWorkspace(name) {
         name = name.trim();
     }
     const id = 'ws_' + Date.now();
-    state.workspaces.push({ id, name, createdAt: Date.now() });
+    getModeWorkspaces().push({ id, name, createdAt: Date.now() });
     saveWorkspaceRegistry();
     switchWorkspace(id);
 }
 
 async function switchWorkspace(wsId) {
-    // 保存当前工作区数据
-    if (state.currentWorkspaceId) {
+    // 保存当前模式数据
+    if (getModeWorkspaceId()) {
         saveToLocalStorage();
     }
-    // 重置内存状态
-    state.segmentTasks = [];
-    state.segmentTaskIndex = -1;
-    state.profileTasks = [];
-    state.profileTaskIndex = -1;
-    state.audiovisualTasks = [];
-    state.audiovisualTaskIndex = -1;
+    // 重置当前模式的内存状态
+    const mode = state.reviewMode;
+    if (mode === 'segment') { state.segmentTasks = []; state.segmentTaskIndex = -1; resetRatings(); }
+    else if (mode === 'audiovisual') { state.audiovisualTasks = []; state.audiovisualTaskIndex = -1; resetAudiovisualRatings(); }
+    else { state.profileTasks = []; state.profileTaskIndex = -1; resetProfileRatings(); }
     state.currentOutputGroup = 0;
-    resetRatings();
-    resetProfileRatings();
-    resetAudiovisualRatings();
 
-    // 切换
-    state.currentWorkspaceId = wsId;
+    setModeWorkspaceId(wsId);
     saveWorkspaceRegistry();
 
-    // 加载新工作区数据
+    // 加载新工作区的当前模式数据
     await loadFromLocalStorage();
 
-    // 刷新 UI（保持当前审核模式不变）
     renderWorkspaceSwitcher();
     switchReviewMode(state.reviewMode);
     updateUI();
 }
 
 function deleteWorkspace(wsId) {
-    if (state.workspaces.length <= 1) {
+    const workspaces = getModeWorkspaces();
+    if (workspaces.length <= 1) {
         alert('至少保留一个工作区');
         return;
     }
-    const ws = state.workspaces.find(w => w.id === wsId);
-    if (!confirm(`确定删除工作区「${ws.name}」？所有审查数据将丢失！`)) return;
+    const ws = workspaces.find(w => w.id === wsId);
+    if (!confirm(`确定删除工作区「${ws.name}」？该模式下的审查数据将丢失！`)) return;
 
-    ['segment-index', 'profile-index', 'audiovisual-index', 'review-mode'].forEach(suffix => {
-        localStorage.removeItem(getWorkspaceKey(wsId, suffix));
-    });
-    ['segment-tasks', 'profile-tasks', 'audiovisual-tasks'].forEach(suffix => {
-        idb.del(getWorkspaceKey(wsId, suffix)).catch(() => {});
-    });
-    state.workspaces = state.workspaces.filter(w => w.id !== wsId);
+    const mode = state.reviewMode;
+    localStorage.removeItem(`${mode}:${wsId}:index`);
+    idb.del(`${mode}:${wsId}:tasks`).catch(() => {});
+
+    setModeWorkspaces(workspaces.filter(w => w.id !== wsId));
     saveWorkspaceRegistry();
 
-    if (state.currentWorkspaceId === wsId) {
-        switchWorkspace(state.workspaces[0].id);
+    if (getModeWorkspaceId() === wsId) {
+        switchWorkspace(getModeWorkspaces()[0].id);
     } else {
         renderWorkspaceSwitcher();
     }
@@ -1909,13 +1966,16 @@ function deleteWorkspace(wsId) {
 function renderWorkspaceSwitcher() {
     const select = document.getElementById('workspace-select');
     if (!select) return;
-    select.innerHTML = state.workspaces.map(ws =>
-        `<option value="${ws.id}" ${ws.id === state.currentWorkspaceId ? 'selected' : ''}>${ws.name}</option>`
+    const workspaces = getModeWorkspaces();
+    const currentId = getModeWorkspaceId();
+    select.innerHTML = workspaces.map(ws =>
+        `<option value="${ws.id}" ${ws.id === currentId ? 'selected' : ''}>${ws.name}</option>`
     ).join('');
 }
 
 function showWorkspaceMenu() {
-    const ws = state.workspaces.find(w => w.id === state.currentWorkspaceId);
+    const workspaces = getModeWorkspaces();
+    const ws = workspaces.find(w => w.id === getModeWorkspaceId());
     if (!ws) return;
     const action = prompt(
         `工作区「${ws.name}」\n\n输入新名称可重命名，或输入 delete 删除：`,
@@ -4650,42 +4710,45 @@ function parseExcel(arrayBuffer) {
 
         obj.video_url = safeUpgradeToHttps(videoUrl);
 
-        // 解析模型输出
+        // 建立：模型列索引 → eval 列索引 的映射（每个 eval 列只对应紧靠其左侧的模型列）
+        const modelColToEvalCol = new Map();
+        for (const ec of evalCols) {
+            let bestModelColIdx = -1;
+            for (const mc of finalModelCols) {
+                if (mc.col < ec && mc.col > bestModelColIdx) {
+                    bestModelColIdx = mc.col;
+                }
+            }
+            if (bestModelColIdx >= 0) {
+                modelColToEvalCol.set(bestModelColIdx, ec);
+            }
+        }
+
+        // 解析模型输出 & 自动评估（单次遍历，eval 与紧左侧模型列一一对应）
         obj.model_outputs = [];
         obj.model_names = [];
+        if (evalCols.length > 0) obj.autoEvals = [];
 
         for (const modelCol of finalModelCols) {
             const parsed = parseJsonCell(row[modelCol.col], i, modelCol.col + 1);
             if (!parsed) continue; // null = 空单元格，静默跳过
             obj.model_outputs.push(parsed);
             obj.model_names.push(modelCol.name);
-        }
 
-        // 解析自动评估列（支持多列，按顺序与模型列一一配对）
-        if (evalCols.length > 0) {
-            obj.autoEvals = [];
-            if (evalCols.length === 1 && row[evalCols[0]]) {
-                // 单个评估列：应用于所有模型输出
-                const parsed = quickParseJson(fixDuplicateEvalKeys(String(row[evalCols[0]])));
-                const normalized = parsed ? normalizeAutoEval(parsed) : null;
-                if (!parsed) console.warn(`任务 ${i + 1} 自动评估数据解析失败`);
-                for (let m = 0; m < obj.model_outputs.length; m++) obj.autoEvals.push(normalized);
-            } else {
-                // 多个评估列：第N个evalCol对应第N个模型列
-                for (let m = 0; m < obj.model_outputs.length; m++) {
-                    const ec = evalCols[m];
-                    if (ec != null && row[ec]) {
-                        const parsed = quickParseJson(fixDuplicateEvalKeys(String(row[ec])));
-                        if (parsed) obj.autoEvals.push(normalizeAutoEval(parsed));
-                        else { obj.autoEvals.push(null); console.warn(`任务 ${i + 1} 模型${m + 1} 自动评估数据解析失败`); }
-                    } else {
-                        obj.autoEvals.push(null);
-                    }
+            if (evalCols.length > 0) {
+                const ec = modelColToEvalCol.get(modelCol.col);
+                if (ec != null && row[ec]) {
+                    const evParsed = quickParseJson(fixDuplicateEvalKeys(String(row[ec])));
+                    if (evParsed) obj.autoEvals.push(normalizeAutoEval(evParsed));
+                    else { obj.autoEvals.push(null); console.warn(`任务 ${i + 1} 模型 ${modelCol.name} 自动评估数据解析失败`); }
+                } else {
+                    obj.autoEvals.push(null);
                 }
             }
-            // 兼容：保留 autoEval 指向第一组
-            obj.autoEval = obj.autoEvals[0] || null;
         }
+
+        // 兼容：保留 autoEval 指向第一组
+        if (evalCols.length > 0) obj.autoEval = obj.autoEvals[0] || null;
 
         // 兼容旧格式
         obj.model_output = obj.model_outputs[0] || {};
@@ -5153,59 +5216,44 @@ function exportResults() {
 // ============================================
 // 本地存储
 // ============================================
+// 保存当前模式的任务数据到对应工作区
 function saveToLocalStorage() {
-    const wsId = state.currentWorkspaceId;
+    const mode = state.reviewMode;
+    const wsId = getModeWorkspaceId();
     if (!wsId) return;
-    // 索引值很小，仍用 localStorage
-    localStorage.setItem(getWorkspaceKey(wsId, 'segment-index'), state.segmentTaskIndex);
-    localStorage.setItem(getWorkspaceKey(wsId, 'profile-index'), state.profileTaskIndex);
-    localStorage.setItem(getWorkspaceKey(wsId, 'audiovisual-index'), state.audiovisualTaskIndex);
-    // 大数据存入 IndexedDB（fire-and-forget）
-    idb.set(getWorkspaceKey(wsId, 'segment-tasks'), state.segmentTasks).catch(e => console.error('IDB save segment error:', e));
-    idb.set(getWorkspaceKey(wsId, 'profile-tasks'), state.profileTasks).catch(e => console.error('IDB save profile error:', e));
-    idb.set(getWorkspaceKey(wsId, 'audiovisual-tasks'), state.audiovisualTasks).catch(e => console.error('IDB save audiovisual error:', e));
+    const tasks = getTasks();
+    const index = mode === 'segment' ? state.segmentTaskIndex
+        : mode === 'audiovisual' ? state.audiovisualTaskIndex
+        : state.profileTaskIndex;
+    localStorage.setItem(`${mode}:${wsId}:index`, index);
+    idb.set(`${mode}:${wsId}:tasks`, tasks).catch(e => console.error('IDB save error:', e));
 }
 
+// 加载当前模式当前工作区的任务数据
 async function loadFromLocalStorage() {
-    const wsId = state.currentWorkspaceId;
+    const mode = state.reviewMode;
+    const wsId = getModeWorkspaceId();
     if (!wsId) return;
     try {
-        // 索引从 localStorage 读取
-        const segmentIndex = localStorage.getItem(getWorkspaceKey(wsId, 'segment-index'));
-        if (segmentIndex !== null) state.segmentTaskIndex = parseInt(segmentIndex);
-        const profileIndex = localStorage.getItem(getWorkspaceKey(wsId, 'profile-index'));
-        if (profileIndex !== null) state.profileTaskIndex = parseInt(profileIndex);
-        const audiovisualIndex = localStorage.getItem(getWorkspaceKey(wsId, 'audiovisual-index'));
-        if (audiovisualIndex !== null) state.audiovisualTaskIndex = parseInt(audiovisualIndex);
+        const rawIndex = localStorage.getItem(`${mode}:${wsId}:index`);
+        const index = rawIndex !== null ? parseInt(rawIndex) : -1;
+        if (mode === 'segment') state.segmentTaskIndex = index;
+        else if (mode === 'audiovisual') state.audiovisualTaskIndex = index;
+        else state.profileTaskIndex = index;
 
-        // 大数据从 IndexedDB 读取，兼容旧 localStorage 数据迁移
-        const loadTasks = async (suffix, fallbackState) => {
-            const key = getWorkspaceKey(wsId, suffix);
-            let data = await idb.get(key);
-            if (data) return data;
-            // 从 localStorage 迁移旧数据
-            const raw = localStorage.getItem(key);
-            if (raw) {
-                data = JSON.parse(raw);
-                await idb.set(key, data);
-                localStorage.removeItem(key);
-                return data;
+        // 尝试新格式 IDB key
+        let data = await idb.get(`${mode}:${wsId}:tasks`);
+        // 兼容旧格式 IDB key：ws:wsId:mode-tasks
+        if (!data) {
+            data = await idb.get(`ws:${wsId}:${mode}-tasks`);
+            if (data) {
+                await idb.set(`${mode}:${wsId}:tasks`, data);
+                idb.del(`ws:${wsId}:${mode}-tasks`).catch(() => {});
             }
-            return null;
-        };
-
-        const [seg, prof, av] = await Promise.all([
-            loadTasks('segment-tasks'),
-            loadTasks('profile-tasks'),
-            loadTasks('audiovisual-tasks')
-        ]);
-        if (seg) state.segmentTasks = seg;
-        if (prof) state.profileTasks = prof;
-        if (av) state.audiovisualTasks = av;
-
-        // 迁移旧数据：.raw → ._raw
-        [state.segmentTasks, state.profileTasks, state.audiovisualTasks].forEach(tasks => {
-            tasks?.forEach(task => {
+        }
+        if (data) {
+            // 迁移旧数据：.raw → ._raw
+            data.forEach(task => {
                 task.model_outputs?.forEach(o => {
                     if (o && o.raw !== undefined && o._raw === undefined) {
                         o._raw = o.raw;
@@ -5213,18 +5261,32 @@ async function loadFromLocalStorage() {
                     }
                 });
             });
-        });
-
-        setTimeout(() => {
-            const currentTasks = getTasks();
-            const currentIndex = getTaskIndex();
-            if (currentIndex >= 0 && currentIndex < currentTasks.length) {
-                selectTask(currentIndex);
-            }
-        }, 150);
+            if (mode === 'segment') state.segmentTasks = data;
+            else if (mode === 'audiovisual') state.audiovisualTasks = data;
+            else state.profileTasks = data;
+        }
     } catch (e) {
         console.error('加载本地存储失败:', e);
     }
+}
+
+// 启动时加载所有模式的任务数据
+async function loadAllWorkspaceData() {
+    const savedMode = state.reviewMode;
+    for (const mode of ['segment', 'profile', 'audiovisual']) {
+        state.reviewMode = mode;
+        await loadFromLocalStorage();
+    }
+    state.reviewMode = savedMode;
+
+    // 恢复当前任务选中状态
+    setTimeout(() => {
+        const currentTasks = getTasks();
+        const currentIndex = getTaskIndex();
+        if (currentIndex >= 0 && currentIndex < currentTasks.length) {
+            selectTask(currentIndex);
+        }
+    }, 150);
 }
 
 // ============================================
@@ -5433,9 +5495,7 @@ function switchReviewMode(mode) {
     if (state.comparisonMode) exitComparisonMode();
 
     state.reviewMode = mode;
-    if (state.currentWorkspaceId) {
-        localStorage.setItem(getWorkspaceKey(state.currentWorkspaceId, 'review-mode'), mode);
-    }
+    localStorage.setItem('review-mode', mode);
 
     // 更新模式按钮样式 (iOS Segmented Control Style)
     document.querySelectorAll('.mode-btn').forEach(btn => {
@@ -5476,6 +5536,9 @@ function switchReviewMode(mode) {
         audiovisualRating?.classList.remove('hidden');
         audiovisualDock?.classList.remove('hidden');
     }
+
+    // 刷新工作区选择器（每种模式有独立工作区列表）
+    renderWorkspaceSwitcher();
 
     // 刷新任务列表和进度（切换模式后显示对应模式的任务）
     updateUI();
@@ -5519,10 +5582,7 @@ function switchReviewMode(mode) {
 }
 
 function restoreReviewMode() {
-    let savedMode = 'segment';
-    if (state.currentWorkspaceId) {
-        savedMode = localStorage.getItem(getWorkspaceKey(state.currentWorkspaceId, 'review-mode')) || 'segment';
-    }
+    const savedMode = localStorage.getItem('review-mode') || 'segment';
     switchReviewMode(savedMode);
 }
 
