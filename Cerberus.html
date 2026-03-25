@@ -163,6 +163,9 @@
         /* 底部 dock 收起状态：隐藏评分内容，只保留工具栏 */
         #rating-dock-body.dock-collapsed > *:not(#rating-dock-toolbar) { display: none !important; }
         #rating-dock-body.dock-collapsed { padding: 6px 10px !important; border-radius: 999px; }
+        #rating-dock-body.dock-collapsed #rating-dock-toolbar { margin-bottom: 0; }
+        /* 展开时隐藏工具栏里的导航按钮（各面板内已有） */
+        #rating-dock-body:not(.dock-collapsed) #toolbar-nav-btns { display: none; }
 
         /* 底部模式备注框默认加高 */
         #rating-dock .av-rate-note {
@@ -718,7 +721,15 @@
     <div id="rating-dock" class="fixed bottom-2 left-1/2 transform -translate-x-1/2 z-[100] w-[calc(100%-300px)] max-w-6xl transition-all duration-300">
         <div id="rating-dock-body" class="glass-blur shadow-2xl rounded-3xl border border-white/30 ring-1 ring-black/5 px-5 py-3 overflow-visible">
             <!-- 工具栏：收起 + 停靠切换，靠右排列 -->
-            <div id="rating-dock-toolbar" class="flex items-center justify-end gap-1 mb-2">
+            <div id="rating-dock-toolbar" class="flex items-center gap-1 mb-2">
+                <!-- 收起时常驻的导航按钮（展开时由 CSS 隐藏） -->
+                <div id="toolbar-nav-btns" class="flex items-center gap-2 mr-auto">
+                    <button onclick="prevTask()" class="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-800 hover:bg-black/5 rounded-lg transition-colors flex items-center gap-0.5">上一条</button>
+                    <button onclick="nextTask()" class="px-3 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-800 hover:bg-black/5 rounded-lg transition-colors flex items-center gap-0.5">下一条</button>
+                    <button onclick="submitReview()" class="px-4 py-1.5 bg-black text-white text-xs font-semibold rounded-lg hover:bg-gray-800 transition-colors flex items-center gap-1 active:scale-95">
+                        <span>提交</span><span class="mdi mdi-arrow-right text-sm"></span>
+                    </button>
+                </div>
                 <button id="rating-dock-toggle" onclick="toggleRatingDock()"
                     class="w-6 h-6 bg-white/80 backdrop-blur-sm border border-white/60
                            shadow-sm rounded-full flex items-center justify-center text-gray-400
@@ -3146,8 +3157,8 @@ function renderOutputGroupSwitcher(task) {
 
     const groupCount = task.model_outputs?.length || 0;
 
-    if (groupCount <= 1) {
-        // 单模型或无数据，隐藏切换器
+    if (groupCount <= 1 || state.comparisonMode) {
+        // 单模型、无数据、或对比模式下隐藏切换器
         switcher.classList.add('hidden');
         return;
     }
@@ -6737,9 +6748,14 @@ function toggleRatingDock() {
         const toggle   = document.getElementById('rating-dock-toggle');
         const icon     = toggle?.querySelector('.mdi');
         const saved    = JSON.parse(localStorage.getItem(COL_WIDTHS_KEY) || '{}');
+        const dock     = document.getElementById('rating-dock');
+        const body     = document.getElementById('rating-dock-body');
         const isCollapsed = col.classList.contains('hidden');
         if (isCollapsed) {
-            // 展开
+            // 展开：从底部 pill 移回右侧列
+            body.classList.remove('dock-collapsed');
+            dock.classList.add('hidden');
+            col.appendChild(body);
             col.classList.remove('hidden');
             col.classList.add('flex');
             col.style.width = (saved.rating || 300) + 'px';
@@ -6748,10 +6764,15 @@ function toggleRatingDock() {
             if (icon) icon.classList.replace('mdi-window-maximize', 'mdi-window-minimize');
             if (toggle) toggle.title = '收起评分面板';
         } else {
-            // 收起：完全隐藏
+            // 收起：移到底部 dock 显示 pill 形导航
             col.classList.add('hidden');
             col.classList.remove('flex');
             divider2.classList.add('hidden');
+            dock.appendChild(body);
+            dock.classList.remove('hidden');
+            body.classList.add('dock-collapsed');
+            dock.classList.add('w-auto');
+            dock.classList.remove('w-[calc(100%-300px)]', 'max-w-6xl');
             if (fab) { fab.classList.remove('hidden'); fab.classList.add('flex'); }
             if (icon) icon.classList.replace('mdi-window-minimize', 'mdi-window-maximize');
             if (toggle) toggle.title = '展开评分面板';
