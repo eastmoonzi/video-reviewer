@@ -1206,7 +1206,7 @@
 // ============================================
 // 视频审查工作台 - 主应用逻辑
 // build: 2026-03-10a
-const APP_VERSION = '2026-03-25a';
+const APP_VERSION = '2026-03-26a';
 // ============================================
 console.log('%c[app.js] 脚本已加载 ' + new Date().toLocaleTimeString(), 'color:green;font-weight:bold');
 
@@ -3866,6 +3866,8 @@ function extractRawText(obj) {
     }
     if (typeof responseStr === 'string' && responseStr.trim()) {
         rawParts.push(responseStr.trim());
+    } else if (responseStr !== null && responseStr !== undefined && typeof responseStr === 'object') {
+        rawParts.push(JSON.stringify(responseStr, null, 2));
     }
 
     // 2. cot 原文
@@ -4396,15 +4398,18 @@ function extractJsonFromCot(cot) {
 
 function parseJsonCell(cellValue, taskIndex, colIndex) {
     if (!cellValue) return null;
-    if (typeof cellValue === 'object' && cellValue !== null) return normalizeModelOutput(cellValue);
 
-    const str = cellValue.toString().replace(/^\uFEFF/, '').trim();
+    // 先存原文：直接取单元格字符串内容
+    const str = typeof cellValue === 'object'
+        ? JSON.stringify(cellValue)
+        : cellValue.toString().replace(/^\uFEFF/, '').trim();
     if (!str) return null;
 
+    // 再解析
     const parsed = quickParseJson(str);
     if (parsed !== null) {
         const result = normalizeModelOutput(parsed);
-        if (str) result._raw = str;
+        result._raw = str;
         return result;
     }
 
