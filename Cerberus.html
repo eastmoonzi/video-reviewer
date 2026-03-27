@@ -2378,25 +2378,50 @@ function renderParseErrorFallback(containerId) {
 // ─── LLM 修复 ────────────────────────────────────────────────────────────────
 
 const LLM_REPAIR_PROMPTS = {
-    segment: `将以下内容修复为合法的 JSON，严格保留所有字段名和字段值，不要增删任何字段，不要任何其他输出。
-目标结构为分段语义数组，每个片段包含字段：start, end, label, description, visual, keyframes。
+    segment: `你是 JSON 结构修复专家。请将以下视频分段语义内容修复为合法 JSON。
+
+目标结构为分段数组，每个片段包含字段：start, end, label, description, visual, keyframes。
 原始字段名也可能是：segment_detail / segment_output 包裹的数组，或 time/text/vis/key_frame 等。
-只修复 JSON 格式，不改动任何字段值。\n\n`,
 
-    profile: `将以下内容修复为合法的 JSON，严格保留所有字段名和字段值，不要增删任何字段，不要任何其他输出。
-目标结构为全篇语义画像，包含以下字段（可能被 global_profile 包裹）：
-narrative_type, visual_type, summary, intent_type, topic_consistency, core_claim, emotion_type（或 emotional_tone）。
-只修复 JSON 格式，不改动任何字段值。\n\n`,
+修复规则：
+1. 理解语义，按目标结构重组（如字段被错误嵌套，提取出来）
+2. 保留所有原始字段值，不要编造内容
+3. 只输出修复后的 JSON，不要任何其他文字\n\n`,
 
-    audiovisual: `将以下内容修复为合法的 JSON，严格保留所有字段名和字段值，不要增删任何字段，不要任何其他输出。
-目标结构为基础音画质量评估，完整字段如下：
-- audiovisual_integration（或 visual_integration）: { detail_quality: { level, desc } }
-- vision_quality: { visual_processing_elements: [...], composition: [...] }
-- content_subject: { man_negative_content: [...], creature_negative_content: [...] }
-- information: { information_attributes: [...], questionable_info: { has_issue, desc }, geographic_info: { has_info, desc }, timeliness_info: { has_info, desc } }
-- intent: { vulgar_intent: { has_intent, desc }, promotional_intent: [...] }
-- values: { immoral_values: { has_issue, category: [...], desc } }
-只修复 JSON 格式，不改动任何字段名或字段值。\n\n`,
+    profile: `你是 JSON 结构修复专家。请将以下视频全篇语义画像内容修复为合法 JSON。
+
+目标结构（7 个维度必须是顶层同级字段）：
+{
+  "narrative_type": {"tag": "...", "reason": "..."},
+  "visual_type": "...",
+  "summary": "...",
+  "intent_type": {"tag": "...", "reason": "..."},
+  "topic_consistency": {"tag": "...", "reason": "..."},
+  "core_claim": [...],
+  "emotion_type": {"tag": "...", "reason": "..."}
+}
+
+修复规则：
+1. 如果多个维度被错误嵌套在某个字段内部，提取出来作为顶层同级字段
+2. 保留所有原始字段值，不要编造内容
+3. 只输出修复后的 JSON，不要任何其他文字\n\n`,
+
+    audiovisual: `你是 JSON 结构修复专家。请将以下视频基础音画质量评估内容修复为合法 JSON。
+
+目标结构：
+{
+  "audiovisual_integration": { "detail_quality": { "level": "...", "desc": "..." } },
+  "vision_quality": { "visual_processing_elements": [...], "composition": [...] },
+  "content_subject": { "man_negative_content": [...], "creature_negative_content": [...] },
+  "information": { "information_attributes": [...], "questionable_info": {...}, "geographic_info": {...}, "timeliness_info": {...} },
+  "intent": { "vulgar_intent": {...}, "promotional_intent": [...] },
+  "values": { "immoral_values": {...} }
+}
+
+修复规则：
+1. 理解语义，按目标结构重组（audiovisual_integration 也可能写作 visual_integration）
+2. 保留所有原始字段值，不要编造内容
+3. 只输出修复后的 JSON，不要任何其他文字\n\n`,
 };
 
 async function callLLMRepair(text, mode) {
@@ -2514,6 +2539,7 @@ async function repairSingleOutput(taskIndex, groupIndex) {
             throw new Error('LLM 无法识别该 JSON');
         }
         task.model_outputs[groupIndex] = normalizeModelOutput(repaired);
+        task.model_outputs[groupIndex]._raw = rawText;
         saveToLocalStorage();
         updateUI();
         // 重新渲染内容面板（updateUI 只刷新侧边栏，不刷新主面板）
@@ -2566,6 +2592,7 @@ async function repairAllErrors() {
                 const repaired = await callLLMRepair(raw, state.reviewMode);
                 if (repaired !== null && repaired !== undefined) {
                     tasks[ti].model_outputs[gi] = normalizeModelOutput(repaired);
+                    tasks[ti].model_outputs[gi]._raw = raw;
                     fixedCount++;
                 } else {
                     failedCount++;
@@ -4688,21 +4715,7 @@ function parseExcel(arrayBuffer) {
         if (specialCols.has(col)) continue;
         const header = headerRow[col]?.toString().trim() || '';
         if (!header) continue;
-        // 检查第一行数据是否像 JSON 内容（含 CoT 包裹）
-        const firstVal = (dataRows[0]?.[col] || '').toString().trim();
-        const looksLikeJson = /^[\[{"`']/.test(firstVal) || firstVal.startsWith('```')
-            || /^<(?:think|thinking|reasoning|thought|json_output|output)/i.test(firstVal);
-        if (looksLikeJson) {
-            finalModelCols.push({ col, name: header });
-        }
-    }
-    // 如果智能检测没找到模型列，回退到所有未识别列
-    if (finalModelCols.length === 0) {
-        for (let col = 0; col < colCount; col++) {
-            if (specialCols.has(col)) continue;
-            const header = headerRow[col]?.toString().trim() || '';
-            if (header) finalModelCols.push({ col, name: header });
-        }
+        finalModelCols.push({ col, name: header });
     }
     console.log('模型列:', finalModelCols.map(m => `${m.name}(第${m.col + 1}列)`));
     const startRowIndex = 2; // Excel行号从1开始，数据从第2行开始
