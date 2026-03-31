@@ -1206,7 +1206,7 @@
 // ============================================
 // 视频审查工作台 - 主应用逻辑
 // build: 2026-03-10a
-const APP_VERSION = '2026-03-27a';
+const APP_VERSION = '2026-03-31a';
 // ============================================
 console.log('%c[app.js] 脚本已加载 ' + new Date().toLocaleTimeString(), 'color:green;font-weight:bold');
 
@@ -4003,8 +4003,9 @@ function convertJsonlToTask(obj, index) {
         segmentData = response.segment_detail;
     }
 
-    // 检测是否同时包含画像数据（多代码块合并的情况）
-    if (typeof response === 'object' && !Array.isArray(response)) {
+    // 检测是否同时包含画像数据（多代码块合并的情况，仅当无 segment_detail/segment_output 时才提取）
+    if (typeof response === 'object' && !Array.isArray(response) &&
+        response.segment_detail === undefined && response.segment_output === undefined) {
         if (response.narrative_type || response.visual_type || response.summary || response.global_profile) {
             profileData = response;
         }
@@ -4873,9 +4874,9 @@ function normalizeModelOutput(data) {
         output.segments = data.segments;
     }
     
-    // 处理全篇语义画像数据
+    // 处理全篇语义画像数据（仅当无分段数据时提取，分段模式下忽略 global_profile）
     // 情况A：global_profile 嵌套格式
-    if (data.global_profile) {
+    if (!output.segments && data.global_profile) {
         const gp = data.global_profile;
         output.profile = {
             narrative_type: gp.narrative_type,
@@ -4888,9 +4889,9 @@ function normalizeModelOutput(data) {
         };
     }
     // 情况B：顶层字段格式（没有 segment_detail 和 global_profile 包裹）
-    else if (data.narrative_type || data.visual_type || data.summary || 
-             data.intent_type || data.topic_consistency || data.core_claim || 
-             data.emotion_type || data.emotional_tone) {
+    else if (!output.segments && (data.narrative_type || data.visual_type || data.summary ||
+             data.intent_type || data.topic_consistency || data.core_claim ||
+             data.emotion_type || data.emotional_tone)) {
         output.profile = {
             narrative_type: data.narrative_type,
             visual_type: data.visual_type,
@@ -6673,9 +6674,9 @@ normalizeModelOutput = function(data) {
         output.segments = data.segments;
     }
     
-    // 处理全篇语义画像数据
+    // 处理全篇语义画像数据（仅当无分段数据时提取，分段模式下忽略 global_profile）
     // 情况1：global_profile 嵌套格式（用户提供的格式）
-    if (data.global_profile) {
+    if (!output.segments && data.global_profile) {
         const gp = data.global_profile;
         output.profile = {
             narrative_type: gp.narrative_type,
@@ -6689,9 +6690,9 @@ normalizeModelOutput = function(data) {
         };
     }
     // 情况2：顶层字段格式
-    else if (data.narrative_type || data.visual_type || data.summary || 
-        data.intent_type || data.topic_consistency || data.core_claim || 
-        data.emotion_type || data.emotional_tone) {
+    else if (!output.segments && (data.narrative_type || data.visual_type || data.summary ||
+        data.intent_type || data.topic_consistency || data.core_claim ||
+        data.emotion_type || data.emotional_tone)) {
         output.profile = {
             narrative_type: data.narrative_type,
             visual_type: data.visual_type,
