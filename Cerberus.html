@@ -1206,7 +1206,7 @@
 // ============================================
 // 视频审查工作台 - 主应用逻辑
 // build: 2026-03-10a
-const APP_VERSION = '2026-03-31a';
+const APP_VERSION = '2026-0402a';
 // ============================================
 console.log('%c[app.js] 脚本已加载 ' + new Date().toLocaleTimeString(), 'color:green;font-weight:bold');
 
@@ -4304,6 +4304,12 @@ function quickParseJson(str) {
     if (!str || !str.trim()) return null;
     str = str.trim();
 
+    // 将字面量 \n \r \t 替换为真实控制字符（Excel/批处理导出常见问题）
+    // 仅当字符串不含真实换行时执行（避免破坏正常 JSON 中的 \\n 转义）
+    if (!str.includes('\n') && str.includes('\\n')) {
+        str = str.replace(/\\n/g, '\n').replace(/\\r/g, '\r').replace(/\\t/g, '\t');
+    }
+
     // 1. 剥离常见 CoT 标签（闭合的）
     str = str.replace(/<(?:think|thinking|reasoning|thought|内心独白|分析)>[\s\S]*?<\/(?:think|thinking|reasoning|thought|内心独白|分析)>/gi, '').trim();
     // 未闭合的 CoT 标签：从标签开始到第一个 JSON 对象/数组/代码块之前全部剥离
@@ -4344,6 +4350,32 @@ function quickParseJson(str) {
     // 5. 单代码块：提取内容再解析
     if (blocks && blocks.length === 1) {
         str = blocks[0].replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '').trim();
+    }
+
+    // 5.3 替换非断行空格为普通空格（Excel/Word 复制粘贴常见问题，JSON 不认 \u00a0 为空白符）
+    str = str.replace(/\u00a0/g, ' ');
+
+    // 5.4 修复断裂的空字符串值（GT 标注人在 Excel 中留空产生 "key": "\n}, 的模式）
+    // 检测 ': "' 紧跟换行且下一个非空字符是结构符 }]", 的模式，插入缺失的闭合引号
+    str = str.replace(/(:\s*")\r?\n(\s*[}\]",])/g, '$1"\n$2');
+
+    // 5.5 转义 JSON 字符串值内的裸换行/回车/制表符（Excel 导出常见问题）
+    // JSON 规范不允许字符串内出现未转义的控制字符，但 Excel 的 Alt+Enter 会产生真实 \n
+    // 策略：用简易状态机遍历，仅在引号内部替换
+    {
+        let inString = false, escaped = false, buf = [];
+        for (let i = 0; i < str.length; i++) {
+            const ch = str[i];
+            if (escaped) { escaped = false; buf.push(ch); continue; }
+            if (ch === '\\') { escaped = true; buf.push(ch); continue; }
+            if (ch === '"') { inString = !inString; buf.push(ch); continue; }
+            if (inString && (ch === '\n' || ch === '\r' || ch === '\t')) {
+                buf.push(ch === '\n' ? '\\n' : ch === '\r' ? '\\r' : '\\t');
+                continue;
+            }
+            buf.push(ch);
+        }
+        str = buf.join('');
     }
 
     // 6. 直接 JSON.parse
@@ -4387,8 +4419,7 @@ function quickParseJson(str) {
             .replace(/\uff1a\s*"/g, ': "');                            // ：" → : "
         if (norm !== str) {
             try { return JSON.parse(norm); } catch (_) {}
-            // 继续到 Python dict 容错
-            str = norm;
+            // 不更新 str：弯引号替换可能破坏字符串值内的引号，不应影响后续步骤
         }
     } catch (_) {}
 
