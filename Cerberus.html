@@ -1108,8 +1108,21 @@
                     </p>
                 </div>
             </div>
+            <div id="repair-progress" class="hidden px-4 py-2 bg-blue-50 border-t text-sm text-blue-800">
+                <div class="flex items-center gap-2">
+                    <span class="mdi mdi-autorenew animate-spin"></span>
+                    <span id="repair-progress-text">解析中...</span>
+                </div>
+                <div class="mt-1 h-1.5 bg-blue-100 rounded-full overflow-hidden">
+                    <div id="repair-progress-bar" class="h-full bg-blue-500 rounded-full transition-all" style="width:0%"></div>
+                </div>
+            </div>
             <div class="p-4 border-t bg-gray-50 flex justify-end gap-2">
                 <button onclick="closeImportModal()" class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300">取消</button>
+                <button id="repair-download-btn" onclick="repairAndDownload()"
+                    class="px-3 py-2 bg-green-500 text-white rounded hover:bg-green-600 text-sm flex items-center gap-1">
+                    <span class="mdi mdi-wrench"></span>修复并下载
+                </button>
                 <button onclick="confirmImport()" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600">确认导入</button>
             </div>
         </div>
@@ -1206,7 +1219,7 @@
 // ============================================
 // 视频审查工作台 - 主应用逻辑
 // build: 2026-03-10a
-const APP_VERSION = '2026-0402a';
+const APP_VERSION = '2026-0402b';
 // ============================================
 console.log('%c[app.js] 脚本已加载 ' + new Date().toLocaleTimeString(), 'color:green;font-weight:bold');
 
@@ -2422,6 +2435,81 @@ const LLM_REPAIR_PROMPTS = {
 1. 理解语义，按目标结构重组（audiovisual_integration 也可能写作 visual_integration）
 2. 保留所有原始字段值，不要编造内容
 3. 只输出修复后的 JSON，不要任何其他文字\n\n`,
+};
+
+// ─── 修复-验证 Schema ─────────────────────────────────────────────────────────
+const REPAIR_SCHEMAS = {
+    segment: {
+        validate(obj) {
+            const arr = Array.isArray(obj) ? obj
+                : (obj.segment_detail || obj.segment_output);
+            if (!Array.isArray(arr) || arr.length === 0)
+                return { ok: false, reason: '缺少分段数组 segment_detail/segment_output' };
+            for (let i = 0; i < arr.length; i++) {
+                const seg = arr[i];
+                if (typeof seg !== 'object' || seg === null)
+                    return { ok: false, reason: `片段${i}不是对象` };
+                const hasTime = (Array.isArray(seg.time) && seg.time.length >= 2)
+                    || (seg.start !== undefined && seg.end !== undefined);
+                if (!hasTime) return { ok: false, reason: `片段${i}缺少时间字段(time/start+end)` };
+                if (seg.text === undefined && seg.description === undefined)
+                    return { ok: false, reason: `片段${i}缺少 text 字段` };
+                if (seg.vis === undefined && seg.visual === undefined)
+                    return { ok: false, reason: `片段${i}缺少 vis 字段` };
+                if (seg.key_frame === undefined && seg.keyframes === undefined)
+                    return { ok: false, reason: `片段${i}缺少 key_frame 字段` };
+            }
+            return { ok: true };
+        },
+        normalize(obj) {
+            const arr = Array.isArray(obj) ? obj
+                : (obj.segment_detail || obj.segment_output || []);
+            return { segment_detail: arr };
+        }
+    },
+
+    profile: {
+        validate(obj) {
+            const gp = obj.global_profile || obj;
+            const required = ['narrative_type','visual_type','summary','intent_type',
+                            'topic_consistency','core_claim','emotion_type'];
+            const missing = required.filter(f =>
+                gp[f] === undefined && (f !== 'emotion_type' || gp.emotional_tone === undefined));
+            if (missing.length > 0)
+                return { ok: false, reason: `缺少画像字段: ${missing.join(', ')}` };
+            return { ok: true };
+        },
+        normalize(obj) {
+            const gp = obj.global_profile || obj;
+            const out = {};
+            for (const f of ['narrative_type','visual_type','summary','intent_type',
+                            'topic_consistency','core_claim','emotion_type']) {
+                if (gp[f] !== undefined) out[f] = gp[f];
+            }
+            if (!out.emotion_type && gp.emotional_tone) out.emotion_type = gp.emotional_tone;
+            return out;
+        }
+    },
+
+    audiovisual: {
+        validate(obj) {
+            const src = (obj.audiovisual && typeof obj.audiovisual === 'object') ? obj.audiovisual : obj;
+            const hasAI = src.audiovisual_integration !== undefined || src.visual_integration !== undefined;
+            const required = ['vision_quality','content_subject','information','intent','values'];
+            const missing = required.filter(f => src[f] === undefined);
+            if (!hasAI) missing.unshift('audiovisual_integration');
+            if (missing.length > 0)
+                return { ok: false, reason: `缺少音画维度: ${missing.join(', ')}` };
+            return { ok: true };
+        },
+        normalize(obj) {
+            if (obj.audiovisual && typeof obj.audiovisual === 'object' &&
+                (obj.audiovisual.vision_quality || obj.audiovisual.audiovisual_integration || obj.audiovisual.visual_integration)) {
+                return obj.audiovisual;
+            }
+            return obj;
+        }
+    }
 };
 
 async function callLLMRepair(text, mode) {
@@ -3746,6 +3834,405 @@ function removePendingFile(index) {
 }
 window.removePendingFile = removePendingFile;
 
+// ─── 修复并下载 ──────────────────────────────────────────────────────────────
+
+function downloadBlob(blob, filename) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+function updateRepairProgress(text, pct) {
+    const el = document.getElementById('repair-progress-text');
+    const bar = document.getElementById('repair-progress-bar');
+    if (el) el.textContent = text;
+    if (bar) bar.style.width = pct + '%';
+}
+
+// 单个 JSON 字符串的迭代修复-验证管线，返回 { result, round } 或 null
+async function repairJsonCell(cellStr, mode, schema, stats) {
+    if (!cellStr || !cellStr.trim()) return null;
+
+    // Round 1：直接 JSON.parse + schema 验证
+    try {
+        const parsed = JSON.parse(cellStr);
+        const v = schema.validate(parsed);
+        if (v.ok) {
+            stats.round1++;
+            return { result: JSON.stringify(schema.normalize(parsed), null, 2), round: 1 };
+        }
+    } catch (_) {}
+
+    // Round 2：quickParseJson + normalizeModelOutput + schema 验证
+    const qp = quickParseJson(cellStr);
+    if (qp) {
+        const normalized = normalizeModelOutput(qp);
+        const v = schema.validate(normalized || qp);
+        if (v.ok) {
+            stats.round2++;
+            return { result: JSON.stringify(schema.normalize(normalized || qp), null, 2), round: 2 };
+        }
+        // quickParseJson 成功但 schema 不通过，也试试直接 normalize qp
+        const v2 = schema.validate(qp);
+        if (v2.ok) {
+            stats.round2++;
+            return { result: JSON.stringify(schema.normalize(qp), null, 2), round: 2 };
+        }
+    }
+
+    // Round 3：LLM 修复
+    const hasLLM = localStorage.getItem('llm-use-default') !== '' ||
+                   localStorage.getItem('llm-base-url');
+    if (!hasLLM) {
+        stats.noLLM++;
+        return null;
+    }
+
+    for (let retry = 0; retry < 2; retry++) {
+        try {
+            const repaired = await callLLMRepair(cellStr, mode);
+            if (repaired) {
+                const v = schema.validate(repaired);
+                if (v.ok) {
+                    stats.round3++;
+                    return { result: JSON.stringify(schema.normalize(repaired), null, 2), round: 3 };
+                }
+            }
+        } catch (e) {
+            console.warn('LLM 修复失败:', e.message);
+        }
+    }
+
+    stats.failed++;
+    return null;
+}
+
+async function repairAndDownload() {
+    const files = state._pendingFiles || [];
+    if (files.length === 0) { alert('请先选择文件'); return; }
+
+    const jsonlFiles = files.filter(f => f.name.endsWith('.jsonl'));
+    const excelFiles = files.filter(f => f.name.endsWith('.xlsx') || f.name.endsWith('.xls'));
+    const otherFiles = files.filter(f => !f.name.endsWith('.jsonl') && !f.name.endsWith('.xlsx') && !f.name.endsWith('.xls'));
+
+    if (otherFiles.length > 0) {
+        alert('请选择 Excel (.xlsx/.xls) 或 JSONL (.jsonl) 格式文件');
+        return;
+    }
+    if (jsonlFiles.length > 0 && excelFiles.length > 0) {
+        alert('不支持同时处理 Excel 和 JSONL 文件');
+        return;
+    }
+    if (excelFiles.length > 1) {
+        alert('Excel 文件只能选择一个');
+        return;
+    }
+
+    const mode = state.reviewMode;
+    const schema = REPAIR_SCHEMAS[mode];
+
+    const btn = document.getElementById('repair-download-btn');
+    const progress = document.getElementById('repair-progress');
+    btn.disabled = true;
+    btn.classList.add('opacity-50');
+    progress.classList.remove('hidden');
+
+    try {
+        if (excelFiles.length === 1) {
+            await repairExcelAndDownload(excelFiles[0], mode, schema);
+        } else {
+            await repairJsonlAndDownload(jsonlFiles, mode, schema);
+        }
+    } catch (e) {
+        console.error('修复失败:', e);
+        alert('修复失败: ' + e.message);
+    } finally {
+        btn.disabled = false;
+        btn.classList.remove('opacity-50');
+        progress.classList.add('hidden');
+    }
+}
+
+function showRepairSummary(stats) {
+    const parts = [];
+    if (stats.round1 > 0) parts.push(`直接通过 ${stats.round1} 条`);
+    if (stats.round2 > 0) parts.push(`脚本修复 ${stats.round2} 条`);
+    if (stats.round3 > 0) parts.push(`LLM 修复 ${stats.round3} 条`);
+    if (stats.failed > 0) parts.push(`失败 ${stats.failed} 条`);
+    if (stats.noLLM > 0) parts.push(`${stats.noLLM} 条需 LLM 但未配置`);
+    if (stats.skipped > 0) parts.push(`跳过空单元格 ${stats.skipped} 条`);
+    alert('修复完成！\n' + parts.join('\n'));
+}
+
+async function repairExcelAndDownload(file, mode, schema) {
+    updateRepairProgress('读取 Excel 文件...', 0);
+
+    const arrayBuffer = await new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = e => resolve(e.target.result);
+        reader.onerror = () => reject(new Error('文件读取失败'));
+        reader.readAsArrayBuffer(file);
+    });
+
+    const workbook = XLSX.read(arrayBuffer, { type: 'array', raw: false });
+    const sheetName = workbook.SheetNames[0];
+    const worksheet = workbook.Sheets[sheetName];
+    const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false, defval: '' });
+
+    if (rows.length < 2) { alert('文件无数据行'); return; }
+
+    const headerRow = rows[0];
+    const { modelCols, evalCols } = detectExcelColumns(headerRow);
+
+    // 需要修复的列（模型输出列 + 评估列）
+    const jsonColIndices = [...modelCols.map(m => m.col), ...evalCols];
+    const totalCells = (rows.length - 1) * jsonColIndices.length;
+    let processed = 0;
+
+    const stats = { round1: 0, round2: 0, round3: 0, failed: 0, noLLM: 0, skipped: 0 };
+
+    // 并发控制辅助
+    async function processBatch(tasks, concurrency) {
+        const results = [];
+        let idx = 0;
+        async function worker() {
+            while (idx < tasks.length) {
+                const i = idx++;
+                results[i] = await tasks[i]();
+            }
+        }
+        await Promise.all(Array.from({ length: Math.min(concurrency, tasks.length) }, () => worker()));
+        return results;
+    }
+
+    // 收集所有需要修复的任务
+    const repairTasks = [];
+    for (let r = 1; r < rows.length; r++) {
+        for (const colIdx of jsonColIndices) {
+            const cellStr = rows[r][colIdx] != null ? String(rows[r][colIdx]) : '';
+            repairTasks.push({ r, colIdx, cellStr });
+        }
+    }
+
+    // 先处理 Round 1 & 2（同步，快速）
+    const needLLM = []; // 需要 LLM 修复的任务
+    for (const task of repairTasks) {
+        const { r, colIdx, cellStr } = task;
+        if (!cellStr.trim()) {
+            stats.skipped++;
+            processed++;
+            continue;
+        }
+
+        // 评估列特殊预处理
+        const isEvalCol = evalCols.includes(colIdx);
+        const inputStr = isEvalCol ? fixDuplicateEvalKeys(cellStr) : cellStr;
+
+        // Round 1
+        let done = false;
+        try {
+            const parsed = JSON.parse(inputStr);
+            const toValidate = isEvalCol ? normalizeAutoEval(parsed) : parsed;
+            const v = schema.validate(toValidate);
+            if (v.ok) {
+                const normalized = isEvalCol ? toValidate : schema.normalize(toValidate);
+                rows[r][colIdx] = JSON.stringify(normalized, null, 2);
+                stats.round1++;
+                done = true;
+            }
+        } catch (_) {}
+
+        if (!done) {
+            // Round 2
+            const qp = quickParseJson(inputStr);
+            if (qp) {
+                const toValidate = isEvalCol ? normalizeAutoEval(qp) : (normalizeModelOutput(qp) || qp);
+                const v = schema.validate(toValidate);
+                if (v.ok) {
+                    const normalized = isEvalCol ? toValidate : schema.normalize(toValidate);
+                    rows[r][colIdx] = JSON.stringify(normalized, null, 2);
+                    stats.round2++;
+                    done = true;
+                } else {
+                    // 再试不 normalize 的版本
+                    const v2 = schema.validate(qp);
+                    if (v2.ok) {
+                        rows[r][colIdx] = JSON.stringify(schema.normalize(qp), null, 2);
+                        stats.round2++;
+                        done = true;
+                    }
+                }
+            }
+        }
+
+        if (!done) {
+            needLLM.push(task);
+        }
+        processed++;
+        if (processed % 10 === 0) {
+            updateRepairProgress(`预处理中... ${processed}/${totalCells}`,
+                Math.round(processed / totalCells * 50));
+        }
+    }
+
+    updateRepairProgress(`脚本修复完成，${needLLM.length} 条需 LLM 修复...`, 50);
+
+    // Round 3：LLM 并发修复
+    if (needLLM.length > 0) {
+        const hasLLM = localStorage.getItem('llm-use-default') !== '' ||
+                       localStorage.getItem('llm-base-url');
+        if (!hasLLM) {
+            stats.noLLM += needLLM.length;
+        } else {
+            let llmDone = 0;
+            const llmTasks = needLLM.map(task => async () => {
+                const { r, colIdx, cellStr } = task;
+                for (let retry = 0; retry < 2; retry++) {
+                    try {
+                        const repaired = await callLLMRepair(cellStr, mode);
+                        if (repaired) {
+                            const v = schema.validate(repaired);
+                            if (v.ok) {
+                                rows[r][colIdx] = JSON.stringify(schema.normalize(repaired), null, 2);
+                                stats.round3++;
+                                llmDone++;
+                                updateRepairProgress(
+                                    `LLM 修复中... ${llmDone}/${needLLM.length}`,
+                                    50 + Math.round(llmDone / needLLM.length * 45));
+                                return;
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('LLM 修复失败:', e.message);
+                    }
+                }
+                stats.failed++;
+                llmDone++;
+            });
+            await processBatch(llmTasks, 3);
+        }
+    }
+
+    // 写回 Excel 并下载
+    updateRepairProgress('生成修复后文件...', 98);
+    const newWs = XLSX.utils.aoa_to_sheet(rows);
+    const newWb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(newWb, newWs, sheetName);
+    const outName = file.name.replace(/(\.[^.]+)$/, '_fixed$1');
+    XLSX.writeFile(newWb, outName);
+
+    updateRepairProgress('完成！', 100);
+    showRepairSummary(stats);
+}
+
+async function repairJsonlAndDownload(files, mode, schema) {
+    for (const file of files) {
+        updateRepairProgress(`读取 ${file.name}...`, 0);
+
+        const text = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = e => resolve(e.target.result);
+            reader.onerror = () => reject(new Error('文件读取失败'));
+            reader.readAsText(file, 'utf-8');
+        });
+
+        const lines = text.split('\n').filter(l => l.trim());
+        if (lines.length === 0) { alert(`${file.name} 无数据`); continue; }
+
+        const stats = { round1: 0, round2: 0, round3: 0, failed: 0, noLLM: 0, skipped: 0 };
+        const repairedLines = [];
+
+        // 模型输出字段名检测
+        const responseFields = ['response', 'assistant_content', 'model_output'];
+
+        for (let i = 0; i < lines.length; i++) {
+            if (i % 5 === 0) {
+                updateRepairProgress(`处理 ${file.name}... ${i + 1}/${lines.length}`,
+                    Math.round((i + 1) / lines.length * 90));
+            }
+
+            let lineObj;
+            try {
+                lineObj = JSON.parse(lines[i]);
+            } catch (_) {
+                // 行级 JSON 解析失败，尝试修复整行
+                const qp = quickParseJson(lines[i]);
+                if (qp && typeof qp === 'object') {
+                    lineObj = qp;
+                } else {
+                    // 无法修复行级 JSON，保留原行
+                    stats.failed++;
+                    repairedLines.push(lines[i]);
+                    continue;
+                }
+            }
+
+            // 找到模型输出字段
+            let field = null;
+            for (const f of responseFields) {
+                if (lineObj[f] !== undefined) { field = f; break; }
+            }
+            // 也检查 messages 格式
+            if (!field && Array.isArray(lineObj.messages)) {
+                const assistant = lineObj.messages.find(m => m.role === 'assistant');
+                if (assistant) {
+                    const content = typeof assistant.content === 'string'
+                        ? assistant.content
+                        : assistant.content?.find(c => c.type === 'text')?.text;
+                    if (content) {
+                        // 将 messages 中的内容提取到临时 response 字段进行修复
+                        lineObj._tempResponse = content;
+                        field = '_tempResponse';
+                    }
+                }
+            }
+
+            if (!field) {
+                // 没有找到模型输出字段，保留原行
+                stats.skipped++;
+                repairedLines.push(JSON.stringify(lineObj));
+                continue;
+            }
+
+            const rawValue = lineObj[field];
+            const cellStr = typeof rawValue === 'string' ? rawValue : JSON.stringify(rawValue);
+
+            const repairResult = await repairJsonCell(cellStr, mode, schema, stats);
+            if (repairResult) {
+                // 写回修复后的值
+                const repaired = JSON.parse(repairResult.result);
+                if (field === '_tempResponse') {
+                    // 写回 messages 格式
+                    const assistant = lineObj.messages.find(m => m.role === 'assistant');
+                    if (typeof assistant.content === 'string') {
+                        assistant.content = repairResult.result;
+                    } else {
+                        const textPart = assistant.content?.find(c => c.type === 'text');
+                        if (textPart) textPart.text = repairResult.result;
+                    }
+                    delete lineObj._tempResponse;
+                } else {
+                    lineObj[field] = typeof rawValue === 'string' ? repairResult.result : repaired;
+                }
+            }
+            // 修复失败则保留原值
+
+            repairedLines.push(JSON.stringify(lineObj));
+        }
+
+        updateRepairProgress('生成修复后文件...', 95);
+        const outName = file.name.replace(/\.jsonl$/, '_fixed.jsonl');
+        const blob = new Blob([repairedLines.join('\n') + '\n'], { type: 'application/jsonl' });
+        downloadBlob(blob, outName);
+
+        updateRepairProgress('完成！', 100);
+        showRepairSummary(stats);
+    }
+}
+
 function confirmImport() {
     const files = state._pendingFiles || [];
 
@@ -4618,6 +5105,90 @@ function extractUrlFromCell(worksheet, cellAddress) {
     return String(cell).trim();
 }
 
+// 智能检测 Excel 表头各列含义（不依赖列顺序，只看列标题）
+function detectExcelColumns(headerRow) {
+    const colCount = headerRow.length;
+
+    const nidKeywords = ['nid', 'data_id', '编号', 'id'];
+    const urlKeywords = ['url', 'video_url', '链接', '视频链接', '视频地址', '视频', 'video', 'videos'];
+    const titleKeywords = ['标题', 'title', 'video_title', '视频标题'];
+    const evalKeywords = ['评估', '自动评估', '自动化评估结果', 'eval', 'evaluation', '评测'];
+    const scoreKeywords = ['_score', '评分', '得分'];
+    const noteKeywords  = ['_问题', '备注', '问题描述'];
+    const skipKeywords  = ['序号', 'no', 'index', 'tools', 'user_content', 'asr',
+                           'think', 'video_duration', 'duration', 'images', 'image',
+                           'assistant_content_raw', '标注人员', '标注者', 'annotator'];
+
+    const exactMatch = (header, keywords) => keywords.some(kw => header === kw);
+
+    let nidCol = -1;
+    let urlCol = -1;
+    let titleCol = -1;
+    const evalCols = [];
+    const modelCols = [];
+    const scoreCols = [];
+    const noteCols  = [];
+    const skipColIndices = [];
+
+    for (let col = 0; col < colCount; col++) {
+        const header = headerRow[col]?.toString().trim().toLowerCase() || '';
+        if (!header) continue;
+
+        if (nidCol === -1 && exactMatch(header, nidKeywords)) {
+            nidCol = col;
+            console.log(`NID列检测: 第${col + 1}列 ("${headerRow[col]}")`);
+            continue;
+        }
+        if (titleCol === -1 && exactMatch(header, titleKeywords)) {
+            titleCol = col;
+            console.log(`标题列检测: 第${col + 1}列 ("${headerRow[col]}")`);
+            continue;
+        }
+        if (urlCol === -1 && exactMatch(header, urlKeywords)) {
+            urlCol = col;
+            console.log(`视频链接列检测: 第${col + 1}列 ("${headerRow[col]}")`);
+            continue;
+        }
+        if (exactMatch(header, evalKeywords)) {
+            evalCols.push(col);
+            console.log(`自动评估列检测: 第${col + 1}列 ("${headerRow[col]}")`);
+            continue;
+        }
+        if (scoreKeywords.some(kw => header.endsWith(kw))) {
+            const key = header.replace(/_score$/, '').replace(/评分$/, '').replace(/得分$/, '');
+            scoreCols.push({ col, key });
+            console.log(`评分列检测: 第${col + 1}列 ("${headerRow[col]}") → key: ${key}`);
+            continue;
+        }
+        if (noteKeywords.some(kw => header.endsWith(kw))) {
+            const key = header.replace(/_问题$/, '').replace(/备注$/, '').replace(/问题描述$/, '');
+            noteCols.push({ col, key });
+            console.log(`备注列检测: 第${col + 1}列 ("${headerRow[col]}") → key: ${key}`);
+            continue;
+        }
+        if (exactMatch(header, skipKeywords)) {
+            skipColIndices.push(col);
+            console.log(`跳过列: 第${col + 1}列 ("${headerRow[col]}")`);
+            continue;
+        }
+        modelCols.push({ col: col, name: headerRow[col]?.toString().trim() || `模型${col + 1}` });
+    }
+
+    // 如果没有检测到链接列，尝试从非特殊列中找
+    if (urlCol === -1) {
+        for (let col = 0; col < colCount; col++) {
+            if (col === nidCol || col === titleCol || evalCols.includes(col)) continue;
+            const header = headerRow[col]?.toString().trim().toLowerCase() || '';
+            if (header === '序号' || header === 'no' || header === 'index') continue;
+            urlCol = col;
+            console.log(`视频链接列(推断): 第${col + 1}列 ("${headerRow[col]}")`);
+            break;
+        }
+    }
+
+    return { nidCol, urlCol, titleCol, modelCols, evalCols, scoreCols, noteCols, skipColIndices };
+}
+
 // 解析Excel文件 (.xlsx) - 支持多列JSON数据
 function parseExcel(arrayBuffer) {
     // 读取时启用超链接解析
@@ -4634,122 +5205,13 @@ function parseExcel(arrayBuffer) {
 
     console.log('Excel 解析原始数据行数:', rows.length);
 
-    // 第一行为表头，智能检测各列含义（不依赖列顺序，只看列标题）
     const headerRow = rows[0];
-    const colCount = headerRow.length;
-
-    // 定义各类型列的关键词（全部用精确匹配，避免子串误匹配）
-    const nidKeywords = ['nid', 'data_id', '编号', 'id'];
-    const urlKeywords = ['url', 'video_url', '链接', '视频链接', '视频地址', 'video', 'videos'];
-    const titleKeywords = ['标题', 'title', 'video_title', '视频标题'];
-    const evalKeywords = ['评估', '自动评估', '自动化评估结果', 'eval', 'evaluation', '评测'];
-    const scoreKeywords = ['_score', '评分', '得分'];  // 这三个仍用 includes（作为后缀）
-    const noteKeywords  = ['_问题', '备注', '问题描述'];  // 同上
-    const skipKeywords  = ['序号', 'no', 'index', 'tools', 'user_content', 'asr',
-                           'think', 'video_duration', 'duration', 'images', 'image',
-                           'assistant_content_raw', '标注人员', '标注者', 'annotator'];
-
-    // 精确匹配辅助函数（nid/url/title/eval/skip 用精确匹配，score/note 用后缀匹配）
-    const exactMatch = (header, keywords) => keywords.some(kw => header === kw);
-
-    // 遍历所有列，根据标题匹配类型
-    let nidCol = -1;
-    let urlCol = -1;
-    let titleCol = -1;
-    const evalCols = []; // 自动评估列（支持多列）
-    const modelCols = []; // 模型输出列
-    const scoreCols = []; // 评分列
-    const noteCols  = []; // 备注列
-    const skipColIndices = []; // 被跳过的列索引
-
-    for (let col = 0; col < colCount; col++) {
-        const header = headerRow[col]?.toString().trim().toLowerCase() || '';
-
-        // 跳过空列
-        if (!header) continue;
-
-        // 检测 nid 列（精确匹配）
-        if (nidCol === -1 && exactMatch(header, nidKeywords)) {
-            nidCol = col;
-            console.log(`NID列检测: 第${col + 1}列 ("${headerRow[col]}")`);
-            continue;
-        }
-
-        // 检测标题列（精确匹配，先于URL列）
-        if (titleCol === -1 && exactMatch(header, titleKeywords)) {
-            titleCol = col;
-            console.log(`标题列检测: 第${col + 1}列 ("${headerRow[col]}")`);
-            continue;
-        }
-
-        // 检测视频链接列（精确匹配）
-        if (urlCol === -1 && exactMatch(header, urlKeywords)) {
-            urlCol = col;
-            console.log(`视频链接列检测: 第${col + 1}列 ("${headerRow[col]}")`);
-            continue;
-        }
-
-        // 检测评估列（精确匹配，支持多列）
-        if (exactMatch(header, evalKeywords)) {
-            evalCols.push(col);
-            console.log(`自动评估列检测: 第${col + 1}列 ("${headerRow[col]}")`);
-            continue;
-        }
-
-        // 检测评分列（后缀匹配：*_score / *评分 / *得分）
-        if (scoreKeywords.some(kw => header.endsWith(kw))) {
-            const key = header.replace(/_score$/, '').replace(/评分$/, '').replace(/得分$/, '');
-            scoreCols.push({ col, key });
-            console.log(`评分列检测: 第${col + 1}列 ("${headerRow[col]}") → key: ${key}`);
-            continue;
-        }
-
-        // 检测备注列（后缀匹配：*_问题 / *备注）
-        if (noteKeywords.some(kw => header.endsWith(kw))) {
-            const key = header.replace(/_问题$/, '').replace(/备注$/, '').replace(/问题描述$/, '');
-            noteCols.push({ col, key });
-            console.log(`备注列检测: 第${col + 1}列 ("${headerRow[col]}") → key: ${key}`);
-            continue;
-        }
-
-        // 跳过无关列（精确匹配）
-        if (exactMatch(header, skipKeywords)) {
-            skipColIndices.push(col);
-            console.log(`跳过列: 第${col + 1}列 ("${headerRow[col]}")`);
-            continue;
-        }
-
-        // 其他列视为模型输出列
-        modelCols.push({ col: col, name: headerRow[col]?.toString().trim() || `模型${col + 1}` });
-    }
-
-    // 如果没有检测到链接列，尝试从非nid非title的非数字列中找
-    if (urlCol === -1) {
-        for (let col = 0; col < colCount; col++) {
-            if (col === nidCol || col === titleCol || evalCols.includes(col)) continue;
-            const header = headerRow[col]?.toString().trim().toLowerCase() || '';
-            // 跳过明显是序号的列
-            if (header === '序号' || header === 'no' || header === 'index') continue;
-            urlCol = col;
-            console.log(`视频链接列(推断): 第${col + 1}列 ("${headerRow[col]}")`);
-            break;
-        }
-    }
+    const { nidCol, urlCol, titleCol, modelCols, evalCols, scoreCols, noteCols, skipColIndices } = detectExcelColumns(headerRow);
 
     // 数据从第二行开始
     const dataRows = rows.slice(1);
 
-    // 确定模型列（排除已识别的特殊列、评分列、备注列）
-    const specialCols = new Set([nidCol, urlCol, titleCol, ...evalCols,
-        ...scoreCols.map(s => s.col), ...noteCols.map(n => n.col), ...skipColIndices]);
-    const finalModelCols = [];
-    for (let col = 0; col < colCount; col++) {
-        if (specialCols.has(col)) continue;
-        const header = headerRow[col]?.toString().trim() || '';
-        if (!header) continue;
-        finalModelCols.push({ col, name: header });
-    }
-    console.log('模型列:', finalModelCols.map(m => `${m.name}(第${m.col + 1}列)`));
+    console.log('模型列:', modelCols.map(m => `${m.name}(第${m.col + 1}列)`));
     const startRowIndex = 2; // Excel行号从1开始，数据从第2行开始
 
     return dataRows.map((row, i) => {
@@ -4791,7 +5253,7 @@ function parseExcel(arrayBuffer) {
         const modelColToEvalCol = new Map();
         for (const ec of evalCols) {
             let bestModelColIdx = -1;
-            for (const mc of finalModelCols) {
+            for (const mc of modelCols) {
                 if (mc.col < ec && mc.col > bestModelColIdx) {
                     bestModelColIdx = mc.col;
                 }
@@ -4806,7 +5268,7 @@ function parseExcel(arrayBuffer) {
         obj.model_names = [];
         if (evalCols.length > 0) obj.autoEvals = [];
 
-        for (const modelCol of finalModelCols) {
+        for (const modelCol of modelCols) {
             const parsed = parseJsonCell(row[modelCol.col], i, modelCol.col + 1);
             if (!parsed) continue; // null = 空单元格，静默跳过
             obj.model_outputs.push(parsed);
