@@ -235,6 +235,8 @@
             line-height: 1.6; color: #374151;
         }
         .comparison-column .comp-body .space-y-6 > * + * { margin-top: 1.5rem; }
+        .diff-ins { background: #dcfce7; color: #166534; border-radius: 2px; padding: 0 1px; }
+        .diff-del { background: #fee2e2; color: #991b1b; border-radius: 2px; padding: 0 1px; text-decoration: line-through; }
         .task-item.search-highlight {
             background: #fef9c3;
             outline: 1.5px solid #facc15;
@@ -1366,6 +1368,7 @@ const state = {
     },
     // 对比模式
     comparisonMode: false,
+    comparisonDiff: false,
     comparisonGroups: [0, 1],
     taskSearch: ''
 };
@@ -7551,6 +7554,9 @@ function buildComparisonView(container, task) {
                 <button onclick="switchComparisonTab('visual')" class="comp-tab-btn text-sm font-medium text-gray-400 hover:text-gray-600 border-b-2 border-transparent pb-1" data-tab="visual">视觉</button>
                 <button onclick="switchComparisonTab('keyframe')" class="comp-tab-btn text-sm font-medium text-gray-400 hover:text-gray-600 border-b-2 border-transparent pb-1" data-tab="keyframe">关键帧</button>
             </div>
+            <button id="comp-diff-toggle" onclick="toggleComparisonDiff()" class="px-2.5 py-1 text-[11px] rounded-lg border border-gray-200 text-gray-400 hover:text-blue-600 hover:border-blue-300 hover:bg-blue-50 transition-colors flex items-center gap-1" title="逐字差异高亮">
+                <span class="mdi mdi-swap-horizontal-bold text-xs"></span>差异
+            </button>
             <div id="comp-rating-group-btns" class="flex gap-1 ml-3"></div>
             <div class="ml-auto flex items-center gap-1.5">
                 <button onclick="seekRelative(-5)" class="w-7 h-7 flex items-center justify-center rounded-lg text-gray-400 hover:text-black hover:bg-gray-100 transition-colors" title="后退5秒">
@@ -7700,6 +7706,22 @@ function switchComparisonTab(tabName) {
 }
 window.switchComparisonTab = switchComparisonTab;
 
+function toggleComparisonDiff() {
+    state.comparisonDiff = !state.comparisonDiff;
+    const btn = document.getElementById('comp-diff-toggle');
+    if (btn) {
+        if (state.comparisonDiff) {
+            btn.classList.add('border-blue-400', 'bg-blue-50', 'text-blue-600');
+            btn.classList.remove('border-gray-200', 'text-gray-400');
+        } else {
+            btn.classList.remove('border-blue-400', 'bg-blue-50', 'text-blue-600');
+            btn.classList.add('border-gray-200', 'text-gray-400');
+        }
+    }
+    switchComparisonTab(state.comparisonTab || 'text');
+}
+window.toggleComparisonDiff = toggleComparisonDiff;
+
 function renderComparisonColumn(bodyEl, task, groupIndex) {
     const output = task.model_outputs?.[groupIndex];
     if (!output) {
@@ -7726,7 +7748,14 @@ function renderComparisonColumn(bodyEl, task, groupIndex) {
         const segments = output.segments || [];
         const tab = state.comparisonTab || 'text';
         if (tab === 'text') {
-            html = generateSegmentTextHTML(segments);
+            if (state.comparisonDiff) {
+                const otherGI = state.comparisonGroups[0] === groupIndex
+                    ? state.comparisonGroups[1] : state.comparisonGroups[0];
+                const otherSegs = task.model_outputs?.[otherGI]?.segments || [];
+                html = generateSegmentDiffTextHTML(segments, otherSegs);
+            } else {
+                html = generateSegmentTextHTML(segments);
+            }
         } else if (tab === 'visual') {
             html = generateSegmentVisualHTML(segments);
         } else if (tab === 'keyframe') {
@@ -7750,6 +7779,133 @@ function renderComparisonColumn(bodyEl, task, groupIndex) {
     }
 }
 
+// ============================================
+// 逐字 Diff 引擎（LCS，豁免标点 + 数字格式）
+// ============================================
+
+// 中文数字 → 阿拉伯数字归一化
+function chineseNumberToArabic(str) {
+    const digitMap = {
+        '零':0,'〇':0,'一':1,'壹':1,'二':2,'贰':2,'两':2,
+        '三':3,'叁':3,'四':4,'肆':4,'五':5,'伍':5,
+        '六':6,'陆':6,'七':7,'柒':7,'八':8,'捌':8,'九':9,'玖':9
+    };
+    const unitMap = {
+        '十':10,'拾':10,'百':100,'佰':100,'千':1000,'仟':1000,
+        '万':10000,'萬':10000,'亿':100000000,'億':100000000
+    };
+    const cnChars = Object.keys(digitMap).join('') + Object.keys(unitMap).join('');
+    const re = new RegExp('[' + cnChars + ']{1,}', 'g');
+
+    return str.replace(re, match => {
+        // 纯数字字符无位值词（如"一二三"作为序号）→ 逐字转换
+        const hasUnit = [...match].some(c => c in unitMap);
+        if (!hasUnit) {
+            return [...match].map(c => digitMap[c] !== undefined ? String(digitMap[c]) : c).join('');
+        }
+        // 有位值词 → 三层累加器解析（亿 > 万 > 千百十）
+        let yiSection = 0, wanSection = 0, current = 0;
+        for (const c of match) {
+            if (c in digitMap) {
+                current = digitMap[c];
+            } else if (c in unitMap) {
+                const unit = unitMap[c];
+                if (unit === 100000000) {
+                    // 亿级：前面所有累积 × 亿
+                    yiSection = (yiSection + wanSection + (current || 1)) * unit;
+                    wanSection = 0; current = 0;
+                } else if (unit === 10000) {
+                    // 万级：当前万以下部分 × 万（不用 ||1，避免干扰已有累积）
+                    wanSection = (wanSection + current) * unit;
+                    current = 0;
+                } else {
+                    // 十/百/千级（||1 处理"十"="一十"=10 的省略写法）
+                    wanSection += (current || 1) * unit;
+                    current = 0;
+                }
+            }
+        }
+        const result = yiSection + wanSection + current;
+        return String(result);
+    });
+}
+
+function diffNormalizeText(t) {
+    let s = String(t || '');
+    s = chineseNumberToArabic(s);
+    s = s.replace(/\s/g, '')
+         .replace(/[\u3000-\u303F]/g, '')
+         .replace(/[\uFF00-\uFFEF]/g, '')
+         .replace(/[^\u4e00-\u9fa5\u0030-\u0039\u0041-\u005A\u0061-\u007A\u4E00-\u9FFF]/g, '');
+    return s;
+}
+
+function computeDiff(a, b) {
+    a = diffNormalizeText(a);
+    b = diffNormalizeText(b);
+    if (a === b) return [{ type: 'equal', text: a }];
+
+    const capA = a.slice(0, 3000), capB = b.slice(0, 3000);
+    const ma = capA.length, nb = capB.length;
+
+    const dp = [];
+    for (let i = 0; i <= ma; i++) dp[i] = new Int16Array(nb + 1);
+    for (let i = 1; i <= ma; i++) {
+        for (let j = 1; j <= nb; j++) {
+            dp[i][j] = capA[i - 1] === capB[j - 1]
+                ? dp[i - 1][j - 1] + 1
+                : Math.max(dp[i - 1][j], dp[i][j - 1]);
+        }
+    }
+
+    const ops = [];
+    let i = ma, j = nb;
+    while (i > 0 || j > 0) {
+        if (i > 0 && j > 0 && capA[i - 1] === capB[j - 1]) {
+            ops.push({ type: 'equal', ch: capA[i - 1] }); i--; j--;
+        } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+            ops.push({ type: 'ins', ch: capB[j - 1] }); j--;
+        } else {
+            ops.push({ type: 'del', ch: capA[i - 1] }); i--;
+        }
+    }
+    ops.reverse();
+
+    const groups = [];
+    for (const op of ops) {
+        if (groups.length && groups[groups.length - 1].type === op.type) {
+            groups[groups.length - 1].text += op.ch;
+        } else {
+            groups.push({ type: op.type, text: op.ch });
+        }
+    }
+    return groups;
+}
+
+function calcDiffStats(groups, origA, origB) {
+    const a = diffNormalizeText(origA);
+    const b = diffNormalizeText(origB);
+    let insChars = 0, delChars = 0, eqChars = 0;
+    let insText = '', delText = '';
+    for (const g of groups) {
+        if (g.type === 'ins') { insChars += g.text.length; insText += g.text; }
+        else if (g.type === 'del') { delChars += g.text.length; delText += g.text; }
+        else eqChars += g.text.length;
+    }
+    const base = Math.max(a.length, b.length, 1);
+    const consistency = (100 - (insChars + delChars) / base * 100).toFixed(1);
+    return { insChars, delChars, eqChars, consistency: parseFloat(consistency), insText, delText };
+}
+
+function renderDiffHtml(groups) {
+    return groups.map(g => {
+        const escaped = escapeHTML(g.text);
+        if (g.type === 'ins') return `<span class="diff-ins" title="新增">${escaped}</span>`;
+        if (g.type === 'del') return `<span class="diff-del" title="缺少">${escaped}</span>`;
+        return escaped;
+    }).join('');
+}
+
 // 分段模式 - 文本
 function generateSegmentTextHTML(segments) {
     if (!segments || segments.length === 0) return '';
@@ -7762,6 +7918,68 @@ function generateSegmentTextHTML(segments) {
             <p class="text-sm text-gray-700">${(seg.description || seg.text || '') || '无文本'}</p>
         </div>
     `).join('');
+}
+
+// 分段模式 - 文本 Diff 视图（对比模式专用）
+function generateSegmentDiffTextHTML(mySegments, otherSegments) {
+    const maxLen = Math.max(mySegments?.length || 0, otherSegments?.length || 0);
+    if (maxLen === 0) return '<div class="text-gray-400 text-center py-4">暂无文本数据</div>';
+
+    let totalIns = 0, totalDel = 0, totalBase = 0, diffCount = 0;
+    const cards = [];
+
+    for (let i = 0; i < maxLen; i++) {
+        const mySeg = mySegments?.[i];
+        const otherSeg = otherSegments?.[i];
+        const myText = mySeg ? (mySeg.description || mySeg.text || '') : '';
+        const otherText = otherSeg ? (otherSeg.description || otherSeg.text || '') : '';
+        const start = mySeg?.start ?? otherSeg?.start ?? 0;
+        const end = mySeg?.end ?? otherSeg?.end ?? 0;
+
+        const groups = computeDiff(myText, otherText);
+        const stats = calcDiffStats(groups, myText, otherText);
+        const diffHtml = renderDiffHtml(groups);
+
+        const normA = diffNormalizeText(myText);
+        const normB = diffNormalizeText(otherText);
+        const base = Math.max(normA.length, normB.length, 0);
+        totalIns += stats.insChars;
+        totalDel += stats.delChars;
+        totalBase += base;
+        if (stats.consistency < 100) diffCount++;
+
+        const badgeColor = stats.consistency >= 100 ? 'bg-green-100 text-green-700'
+            : stats.consistency >= 80 ? 'bg-yellow-100 text-yellow-700'
+            : 'bg-red-100 text-red-700';
+
+        cards.push(`
+            <div class="p-3 rounded-xl bg-black/[0.03] cursor-pointer hover:bg-black/[0.06] transition-all" onclick="seekToTime(${start})">
+                <div class="flex justify-between items-center mb-1">
+                    <span class="text-xs font-semibold text-gray-800">${i + 1}</span>
+                    <div class="flex items-center gap-2">
+                        <span class="text-[11px] text-gray-400 font-mono">${formatTime(start)} → ${formatTime(end)}</span>
+                        <span class="text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${badgeColor}">${stats.consistency}%</span>
+                    </div>
+                </div>
+                <p class="text-sm leading-relaxed">${diffHtml || '无文本'}</p>
+            </div>`);
+    }
+
+    // 汇总栏
+    const overallConsistency = totalBase > 0
+        ? (100 - (totalIns + totalDel) / totalBase * 100).toFixed(1)
+        : '100.0';
+    const overallColor = parseFloat(overallConsistency) >= 100 ? 'text-green-600'
+        : parseFloat(overallConsistency) >= 80 ? 'text-yellow-600' : 'text-red-600';
+
+    const summary = `
+        <div class="flex items-center gap-4 px-3 py-2 rounded-xl bg-gray-50 border border-gray-100 text-xs text-gray-500 mb-2">
+            <span>片段 <b class="text-gray-700">${maxLen}</b> 个</span>
+            <span>有差异 <b class="text-gray-700">${diffCount}</b> 个</span>
+            <span>整体一致率 <b class="${overallColor} text-sm">${overallConsistency}%</b></span>
+        </div>`;
+
+    return summary + '<div class="space-y-3">' + cards.join('') + '</div>';
 }
 
 // 分段模式 - 视觉
@@ -8014,6 +8232,7 @@ function refreshComparisonView() {
 function exitComparisonMode() {
     if (!state.comparisonMode) return;
     state.comparisonMode = false;
+    state.comparisonDiff = false;
 
     // 退出 PiP
     if (document.pictureInPictureElement) {
