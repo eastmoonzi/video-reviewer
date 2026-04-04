@@ -1,73 +1,101 @@
-# 视频审查工作台
+# Caption_Model 标注平台
 
-纯前端视频模型输出审查工具，支持三种评审模式、多模型对比、LLM 自动修复。无需后端，浏览器直接运行。
+**【直接本地使用即可，现在会推送更新，不再需要在线链接！】**
 
-**在线使用** → https://eastmoonzi.github.io/video-reviewer/
+在线使用（实时更新）： [https://eastmoonzi.github.io/video-reviewer/](https://eastmoonzi.github.io/video-reviewer/)
+
+> 注：若在线链接无法播放视频，仍需下载 html 本地使用
+
+GitHub：[https://github.com/eastmoonzi/video-reviewer](https://github.com/eastmoonzi/video-reviewer)
+
+**更新版本后可能需要清空并重新导入数据！**
+
+---
 
 ## 快速开始
 
-在线打开上方链接即可使用，或本地双击 `Cerberus.html` 打开。
-<img width="1440" height="750" alt="image" src="https://github.com/user-attachments/assets/ce86dfb6-f2f6-4acb-84e2-ae3f5ac344e4" />
+**下载打开 Cerberus.html**
 
-** llm 修复功能
-使用预设的 key 即可
+* **Excel 格式**（按列）：
+    * **nid**（nid, data_id, 编号, id）*可选*
+    * **url**（url, 链接, video_url, 视频链接, 视频地址, 视频url, video）
+    * **title**（标题, title, 名称, name, 视频标题）*可选*
+    * **模型输出**
+    * 自动化评估结果 *（可选）*
 
+* **JSONL 格式（可以多组）**：直接导入就行，但不如 Excel 灵活可靠
 
-## 功能概览
+---
 
-- **三种评审模式**：分段语义详情（1-3 分）、全篇语义画像（0-2 分）、基础音画质量（0-2 分）
-- **多模型对比**：同一视频可导入多个模型输出，顶部按钮一键切换
-- **导入格式**：Excel（.xlsx/.xls）和 JSONL，支持多文件导入自动按视频 URL 合并
-- **JSON 容错**：自动处理代码块包裹、XML 标签、Python dict 语法、截断修复
-- **LLM 修复**：解析失败的条目可调用 LLM 自动修复，内置默认 API 开箱即用
-- **多工作区**：数据完全隔离，独立保存任务和评分进度
-- **本地持久化**：所有数据保存在 localStorage，刷新不丢失
-- **导出**：一键导出 Excel，含所有维度评分和备注
-- **多模型输出对比**： 将视频以小窗方式播放，模型内容并排排列，方便对比
+## 一、运行
 
-## 导入格式
+### 下载 Cerberus.html 在本地运行（推荐）
+每次打开或刷新可以接收到推送到 GitHub 的更新，点击下载新版即可，不用担心收取不到最新版本。
 
-### Excel
+### 点击 GitHub Pages 链接可以在线使用
+不需要下载任何文件，可以实时收取更新信息。但弊端是**无法播放内网 http（非 https）开头的视频链接**。
 
-自动检测列结构，无需固定列顺序：
+---
 
-| nid（可选）| 视频链接 | 标题（可选）| 模型A | 模型B | ... |
-|-----------|---------|-----------|-------|-------|-----|
-| 001 | https://video.mp4 | 视频标题 | {JSON} | {JSON} | ... |
+## 二、导入数据
 
-### JSONL
+**注意：先在顶部选择需要的评审模式再导入文件，暂不支持自动识别**
 
-每行一个 JSON 对象，多文件导入时按 `video_url` 自动合并：
+### 一般导入格式
+* **推荐 Excel**：最可靠。将 nid（可选，导入后支持按顺序排列）、视频标题（可选但推荐）、视频链接、模型输出按列放进 Excel 后导入工具即可获取结果。
+    * 可以填入**多列模型输出**，以便在同一组任务中查看多组输出
+* JSONL 格式：大部分情况下也支持，但不如 Excel 灵活
 
-```json
-{"nid": "001", "video_url": "https://video.mp4", "model_name": "模型A", "response": { ... }}
-```
+### 自动化评估结果导入
+* 在模型列**相邻**的右侧填入对应的自动化评估结果即可导入，该操作会自动填写评分和备注
+* 若有两列模型输出 A、B 和一列 B 输出的自动化评估 C，按照列 ABC 这样填即可将自动化评估对应到 B 列
+* 如果是 JSONL 格式的文件，可以先导入模型输出，再在工具内点击**导入自动评估**按钮，再导入对应自动评估结果文件
 
-### 格式自动识别
+---
 
-- 含 `segment_detail` / `segment_output` → 分段语义详情
-- 含 `global_profile` / `narrative_type` → 全篇语义画像
-- 含 `vision_quality` / `audiovisual_integration` → 基础音画质量
+## 三、工作区
 
-## LLM 修复
+**本工具可以保存历史评估结果，刷新、重新打开等操作不会清空已有的操作**
 
-导入时 JSON 解析失败的条目，可通过 LLM 自动修复为标准 JSON。
+导入数据前，可以在左侧**审查台**操作栏选择**工作区**，支持添加、删除、命名操作，以辅助记录多次工作。
 
-- **默认 API**：内置 DeepSeek API，勾选「使用默认 API」即可直接使用
-- **自定义 API**：取消勾选后填写 Base URL、API Key、模型名称
-- **单条修复**：点击解析失败卡片上的「修复此条」按钮
-- **批量修复**：点击侧边栏「全部修复」，后台并发处理不阻塞操作
+* 三种模式的工作区各自独立
+* 清空当前工作区不会影响其他工作区的数据
 
-支持 DeepSeek、OpenAI、Anthropic 及任何 OpenAI 兼容接口。
+---
 
+## 四、开始评审
 
-## 对比模式
-当前任务存在多个模型的输出时，可以选择以对比模式进行审查（多于两个模型时可以点击标题切换当前模型）：
-<img width="1440" height="779" alt="image" src="https://github.com/user-attachments/assets/065dab68-49d8-4e34-b625-e47ca9aff774" />
+### 评分板
+* 评分板支持停靠底部、右侧以及收起
+* 评分和备注操作直接在评分板输入，内容会实时保存（约 0.5s），不必担心刷新丢失
+* 评分板、模型内容、视频播放区可以通过拖动分割线改变占比
+* 点击**提交**，该条 case 的评分会写入评估结果
 
+### 模型输出区
+* 分段详情支持点击分段跳转（同时视频的进度条也有对应分段）
+* 如果模型输出中有类似时间戳的内容，工具会自动识别并支持点击跳转
+* 支持手动输入时间跳转
 
+### 对比模式
+若导入了多组模型输出，支持开启**对比模式**比较输出，此时视频会变成**小窗播放**，可以拖动位置、放大缩小。可以使用工具栏组件对小窗播放的视频进行倍速等操作。
 
-## 快捷键
+#### 文本差异对比（新）
+对比模式下查看「文本」Tab 时，点击工具栏的**「差异」按钮**，可以开启逐字差异高亮：
+
+* **绿色高亮**：对比列新增的内容
+* **红色删除线**：基准列缺少的内容
+* 每个片段卡片右上角显示**一致率**徽标
+* 顶部显示**整体一致率汇总**（有差异片段数 / 总片段数）
+* 统计口径：豁免标点符号和数字格式差异（如 1000 = 一千 = 壹仟），仅计算实质字符不一致
+
+### 原文和 LLM 修复功能
+若工具解析模型输出 JSON 内容失败，会自动显示对应原文，并支持请求 LLM 修复（目前仅支持 DeepSeek，默认使用预置的 API Key，也可以填自己的）。支持在左侧审查台一键修复全部失败 case。
+
+* **修复原文件**：直接修复原始数据文件，再分发任务即可节省标注人员分别请求 LLM 修复的时间和 token 成本
+* LLM 修复的提示词见底部「其他」部分
+
+### 快捷键
 
 | 按键 | 功能 |
 |------|------|
@@ -77,15 +105,72 @@
 | Tab | 切换标签页 |
 | 1 / 2 / 3 | 快速评分 |
 
-## 命令行预处理
+---
 
-适合导入前批量修复，需 `pip install openpyxl`：
+## 五、结果导出
 
-```bash
-# Excel
-export LLM_API_KEY=sk-...
-python3 repair_excel.py input.xlsx output.xlsx
+完成评审后，点击左侧审查台的导出按钮，下载 Excel。
 
-# JSONL
-python3 repair_jsonl.py input.jsonl output.jsonl --fields response
+---
+
+## 六、其他
+
+* 点击任意其他位置收起审查台
+* 点击右上角「报个 bug」按钮自动跳转文档，可以在需求列表中提需
+
+LLM 修复的三组提示词如下：
+
+```
+1. segment — 分段语义详情修复
+
+你是 JSON 结构修复专家。请将以下视频分段语义内容修复为合法 JSON。
+
+目标结构为分段数组，每个片段包含字段：start, end, label, description, visual, keyframes。
+原始字段名也可能是：segment_detail / segment_output 包裹的数组，或 time/text/vis/key_frame 等。
+
+修复规则：
+1. 理解语义，按目标结构重组（如字段被错误嵌套，提取出来）
+2. 保留所有原始字段值，不要编造内容
+3. 只输出修复后的 JSON，不要任何其他文字
+
+---
+2. profile — 全篇语义画像修复
+
+你是 JSON 结构修复专家。请将以下视频全篇语义画像内容修复为合法 JSON。
+
+目标结构（7 个维度必须是顶层同级字段）：
+{
+  "narrative_type": {"tag": "...", "reason": "..."},
+  "visual_type": "...",
+  "summary": "...",
+  "intent_type": {"tag": "...", "reason": "..."},
+  "topic_consistency": {"tag": "...", "reason": "..."},
+  "core_claim": [...],
+  "emotion_type": {"tag": "...", "reason": "..."}
+}
+
+修复规则：
+1. 如果多个维度被错误嵌套在某个字段内部，提取出来作为顶层同级字段
+2. 保留所有原始字段值，不要编造内容
+3. 只输出修复后的 JSON，不要任何其他文字
+
+---
+3. audiovisual — 基础音画质量修复
+
+你是 JSON 结构修复专家。请将以下视频基础音画质量评估内容修复为合法 JSON。
+
+目标结构：
+{
+  "audiovisual_integration": { "detail_quality": { "level": "...", "desc": "..." } },
+  "vision_quality": { "visual_processing_elements": [...], "composition": [...] },
+  "content_subject": { "man_negative_content": [...], "creature_negative_content": [...] },
+  "information": { "information_attributes": [...], "questionable_info": {...}, "geographic_info": {...}, "timeliness_info": {...} },
+  "intent": { "vulgar_intent": {...}, "promotional_intent": [...] },
+  "values": { "immoral_values": {...} }
+}
+
+修复规则：
+1. 理解语义，按目标结构重组（audiovisual_integration 也可能写作 visual_integration）
+2. 保留所有原始字段值，不要编造内容
+3. 只输出修复后的 JSON，不要任何其他文字
 ```
