@@ -7920,66 +7920,34 @@ function generateSegmentTextHTML(segments) {
     `).join('');
 }
 
-// 分段模式 - 文本 Diff 视图（对比模式专用）
+// 分段模式 - 文本 Diff 视图（对比模式专用）—— 整体文本 diff
 function generateSegmentDiffTextHTML(mySegments, otherSegments) {
-    const maxLen = Math.max(mySegments?.length || 0, otherSegments?.length || 0);
-    if (maxLen === 0) return '<div class="text-gray-400 text-center py-4">暂无文本数据</div>';
+    const myText = (mySegments || []).map(s => s.description || s.text || '').join('\n');
+    const otherText = (otherSegments || []).map(s => s.description || s.text || '').join('\n');
+    if (!myText && !otherText) return '<div class="text-gray-400 text-center py-4">暂无文本数据</div>';
 
-    let totalIns = 0, totalDel = 0, totalBase = 0, diffCount = 0;
-    const cards = [];
+    const groups = computeDiff(myText, otherText);
+    const stats = calcDiffStats(groups, myText, otherText);
+    const diffHtml = renderDiffHtml(groups);
 
-    for (let i = 0; i < maxLen; i++) {
-        const mySeg = mySegments?.[i];
-        const otherSeg = otherSegments?.[i];
-        const myText = mySeg ? (mySeg.description || mySeg.text || '') : '';
-        const otherText = otherSeg ? (otherSeg.description || otherSeg.text || '') : '';
-        const start = mySeg?.start ?? otherSeg?.start ?? 0;
-        const end = mySeg?.end ?? otherSeg?.end ?? 0;
-
-        const groups = computeDiff(myText, otherText);
-        const stats = calcDiffStats(groups, myText, otherText);
-        const diffHtml = renderDiffHtml(groups);
-
-        const normA = diffNormalizeText(myText);
-        const normB = diffNormalizeText(otherText);
-        const base = Math.max(normA.length, normB.length, 0);
-        totalIns += stats.insChars;
-        totalDel += stats.delChars;
-        totalBase += base;
-        if (stats.consistency < 100) diffCount++;
-
-        const badgeColor = stats.consistency >= 100 ? 'bg-green-100 text-green-700'
-            : stats.consistency >= 80 ? 'bg-yellow-100 text-yellow-700'
-            : 'bg-red-100 text-red-700';
-
-        cards.push(`
-            <div class="p-3 rounded-xl bg-black/[0.03] cursor-pointer hover:bg-black/[0.06] transition-all" onclick="seekToTime(${start})">
-                <div class="flex justify-between items-center mb-1">
-                    <span class="text-xs font-semibold text-gray-800">${i + 1}</span>
-                    <div class="flex items-center gap-2">
-                        <span class="text-[11px] text-gray-400 font-mono">${formatTime(start)} → ${formatTime(end)}</span>
-                        <span class="text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${badgeColor}">${stats.consistency}%</span>
-                    </div>
-                </div>
-                <p class="text-sm leading-relaxed">${diffHtml || '无文本'}</p>
-            </div>`);
-    }
-
-    // 汇总栏
-    const overallConsistency = totalBase > 0
-        ? (100 - (totalIns + totalDel) / totalBase * 100).toFixed(1)
-        : '100.0';
-    const overallColor = parseFloat(overallConsistency) >= 100 ? 'text-green-600'
-        : parseFloat(overallConsistency) >= 80 ? 'text-yellow-600' : 'text-red-600';
+    const normA = diffNormalizeText(myText);
+    const normB = diffNormalizeText(otherText);
+    const base = Math.max(normA.length, normB.length, 1);
+    const consistency = (100 - (stats.insChars + stats.delChars) / base * 100).toFixed(1);
+    const consistencyColor = parseFloat(consistency) >= 100 ? 'text-green-600'
+        : parseFloat(consistency) >= 80 ? 'text-yellow-600' : 'text-red-600';
 
     const summary = `
         <div class="flex items-center gap-4 px-3 py-2 rounded-xl bg-gray-50 border border-gray-100 text-xs text-gray-500 mb-2">
-            <span>片段 <b class="text-gray-700">${maxLen}</b> 个</span>
-            <span>有差异 <b class="text-gray-700">${diffCount}</b> 个</span>
-            <span>整体一致率 <b class="${overallColor} text-sm">${overallConsistency}%</b></span>
+            <span>一致率 <b class="${consistencyColor} text-sm">${consistency}%</b></span>
+            <span>新增 <b class="text-gray-700">${stats.insChars}</b> 字符</span>
+            <span>删除 <b class="text-gray-700">${stats.delChars}</b> 字符</span>
         </div>`;
 
-    return summary + '<div class="space-y-3">' + cards.join('') + '</div>';
+    return summary + `
+        <div class="p-3 rounded-xl bg-black/[0.03]" style="max-height:60vh;overflow-y:auto">
+            <p class="text-sm leading-relaxed">${diffHtml || '无差异'}</p>
+        </div>`;
 }
 
 // 分段模式 - 视觉
