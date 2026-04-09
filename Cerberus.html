@@ -346,18 +346,33 @@
 
         <!-- Task Search -->
         <div class="px-2 mb-2">
+            <!-- 搜索输入 -->
             <div class="relative">
                 <span class="mdi mdi-magnify absolute left-2.5 top-1/2 -translate-y-1/2 text-gray-400 text-sm pointer-events-none"></span>
+                <button id="task-search-field-btn" onclick="toggleSearchFieldDropdown()"
+                        class="absolute left-7 top-1/2 -translate-y-1/2 text-xs text-gray-400 hover:text-gray-600 font-medium whitespace-nowrap flex items-center gap-0.5 z-10">
+                    全部字段 <span class="text-[10px]">▾</span>
+                </button>
                 <input id="task-search-input"
                        type="text"
                        placeholder="搜索标题、nid、序号…"
-                       oninput="onTaskSearch(this.value)"
-                       class="w-full pl-7 pr-7 py-1.5 text-xs rounded-lg border border-gray-200 bg-white/70 focus:outline-none focus:border-gray-400 placeholder-gray-300" />
+                       oninput="debouncedTaskSearch(this.value)"
+                       class="w-full pl-[5.5rem] pr-7 py-1.5 text-xs rounded-lg border border-gray-200 bg-white/70 focus:outline-none focus:border-gray-400 placeholder-gray-300" />
                 <button id="task-search-clear" onclick="onTaskSearch('', true)"
                         class="hidden absolute right-2 top-1/2 -translate-y-1/2 text-gray-300 hover:text-gray-500 text-sm">
                     <span class="mdi mdi-close-circle"></span>
                 </button>
+                <!-- 字段下拉菜单 -->
+                <div id="task-search-field-dropdown" class="hidden absolute left-0 top-full mt-1 bg-white rounded-lg shadow-lg border border-gray-150 py-1 z-50 min-w-[100px]">
+                    <div onclick="selectSearchField('all')" class="px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 cursor-pointer">全部字段</div>
+                    <div onclick="selectSearchField('index')" class="px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 cursor-pointer">序号</div>
+                    <div onclick="selectSearchField('nid')" class="px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 cursor-pointer">nid</div>
+                    <div onclick="selectSearchField('title')" class="px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 cursor-pointer">标题</div>
+                    <div onclick="selectSearchField('content')" class="px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 cursor-pointer">内容</div>
+                </div>
             </div>
+            <!-- 匹配计数 -->
+            <div id="task-search-match-count" class="hidden text-xs text-gray-400 px-1 mt-1"></div>
         </div>
 
         <!-- Parse Error Banner -->
@@ -1221,7 +1236,7 @@
 // ============================================
 // 视频审查工作台 - 主应用逻辑
 // build: 2026-03-10a
-const APP_VERSION = '2026-0407a';
+const APP_VERSION = '2026-0409a';
 // ============================================
 console.log('%c[app.js] 脚本已加载 ' + new Date().toLocaleTimeString(), 'color:green;font-weight:bold');
 
@@ -1370,7 +1385,9 @@ const state = {
     comparisonMode: false,
     comparisonDiff: false,
     comparisonGroups: [0, 1],
-    taskSearch: ''
+    taskSearch: '',
+    taskSearchField: 'all',
+    taskSearchFilteredIndices: null
 };
 
 // 停靠模式 & 列宽持久化键
@@ -1949,6 +1966,9 @@ function createWorkspace(name) {
 }
 
 async function switchWorkspace(wsId) {
+    // 重置搜索状态
+    resetTaskSearch();
+
     // 保存当前模式数据
     if (getModeWorkspaceId()) {
         saveToLocalStorage();
@@ -3628,9 +3648,87 @@ function goToNextIncomplete() {
     }
 }
 
+// 重置搜索状态
+function resetTaskSearch() {
+    state.taskSearch = '';
+    state.taskSearchField = 'all';
+    state.taskSearchFilteredIndices = null;
+    const input = document.getElementById('task-search-input');
+    const clearBtn = document.getElementById('task-search-clear');
+    const matchCountEl = document.getElementById('task-search-match-count');
+    const fieldBtn = document.getElementById('task-search-field-btn');
+    const dropdown = document.getElementById('task-search-field-dropdown');
+    if (input) { input.value = ''; input.placeholder = '搜索标题、nid、序号…'; }
+    if (clearBtn) clearBtn.classList.add('hidden');
+    if (matchCountEl) { matchCountEl.classList.add('hidden'); matchCountEl.textContent = ''; }
+    if (fieldBtn) fieldBtn.innerHTML = '全部字段 <span class="text-[10px]">▾</span>';
+    if (dropdown) dropdown.classList.add('hidden');
+}
+
+// 搜索字段切换
+function onTaskSearchFieldChange(value) {
+    state.taskSearchField = value;
+    const input = document.getElementById('task-search-input');
+    const fieldBtn = document.getElementById('task-search-field-btn');
+    const dropdown = document.getElementById('task-search-field-dropdown');
+    const labels = {
+        all: '全部字段',
+        index: '序号',
+        nid: 'nid',
+        title: '标题',
+        content: '内容'
+    };
+    const placeholders = {
+        all: '搜索标题、nid、序号…',
+        index: '输入序号…',
+        nid: '输入 nid…',
+        title: '输入标题关键词…',
+        content: '输入内容关键词…'
+    };
+    if (input) input.placeholder = placeholders[value] || '搜索…';
+    if (fieldBtn) fieldBtn.innerHTML = (labels[value] || '全部字段') + ' <span class="text-[10px]">▾</span>';
+    if (dropdown) dropdown.classList.add('hidden');
+    // 重新触发搜索
+    if (state.taskSearch) onTaskSearch(state.taskSearch);
+}
+window.onTaskSearchFieldChange = onTaskSearchFieldChange;
+
+// 搜索字段下拉菜单交互
+function toggleSearchFieldDropdown() {
+    const dropdown = document.getElementById('task-search-field-dropdown');
+    if (dropdown) dropdown.classList.toggle('hidden');
+}
+function selectSearchField(value) {
+    onTaskSearchFieldChange(value);
+}
+// 点击外部关闭下拉菜单
+document.addEventListener('click', function(e) {
+    const dropdown = document.getElementById('task-search-field-dropdown');
+    const btn = document.getElementById('task-search-field-btn');
+    if (dropdown && !dropdown.classList.contains('hidden') && !dropdown.contains(e.target) && e.target !== btn && !btn.contains(e.target)) {
+        dropdown.classList.add('hidden');
+    }
+});
+
+// 内容搜索：匹配模型输出
+function taskContentMatches(task, q) {
+    try {
+        return JSON.stringify(task.model_outputs).toLowerCase().includes(q);
+    } catch { return false; }
+}
+
+// 防抖搜索
+let _taskSearchTimer = null;
+function debouncedTaskSearch(value) {
+    clearTimeout(_taskSearchTimer);
+    _taskSearchTimer = setTimeout(() => onTaskSearch(value), 180);
+}
+window.debouncedTaskSearch = debouncedTaskSearch;
+
 function onTaskSearch(value, clear = false) {
     const input = document.getElementById('task-search-input');
     const clearBtn = document.getElementById('task-search-clear');
+    const matchCountEl = document.getElementById('task-search-match-count');
     if (clear) { input.value = ''; value = ''; }
     state.taskSearch = value.trim();
     clearBtn?.classList.toggle('hidden', !state.taskSearch);
@@ -3638,30 +3736,76 @@ function onTaskSearch(value, clear = false) {
     document.querySelectorAll('.task-item.search-highlight')
         .forEach(el => el.classList.remove('search-highlight'));
 
-    if (!state.taskSearch) return;
+    // 清空搜索时重置过滤
+    if (!state.taskSearch) {
+        state.taskSearchFilteredIndices = null;
+        if (matchCountEl) { matchCountEl.classList.add('hidden'); matchCountEl.textContent = ''; }
+        renderTaskList();
+        return;
+    }
 
     const q = state.taskSearch.toLowerCase();
     const tasks = getTasks();
-    const matchIndex = tasks.findIndex((task, i) =>
-        String(i + 1) === q
-        || (task.id || '').toLowerCase().includes(q)
-        || (task.rawId || '').toLowerCase().includes(q)
-    );
-    if (matchIndex === -1) return;
+    const field = state.taskSearchField;
 
-    const items = document.querySelectorAll('.task-item');
-    const el = items[matchIndex];
-    if (el) {
-        selectTask(matchIndex);
-        el.classList.add('search-highlight');
-        el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    // 按字段匹配，收集所有匹配索引
+    const matchedIndices = [];
+    tasks.forEach((task, i) => {
+        let hit = false;
+        if (field === 'all') {
+            hit = String(i + 1) === q
+                || (task.id || '').toLowerCase().includes(q)
+                || (task.rawId || '').toLowerCase().includes(q)
+                || taskContentMatches(task, q);
+        } else if (field === 'index') {
+            hit = String(i + 1) === q;
+        } else if (field === 'nid') {
+            hit = (task.id || '').toLowerCase().includes(q)
+                || (task.rawId || '').toLowerCase().includes(q);
+        } else if (field === 'title') {
+            hit = (task.id || '').toLowerCase().includes(q)
+                || (task.rawId || '').toLowerCase().includes(q);
+        } else if (field === 'content') {
+            hit = taskContentMatches(task, q);
+        }
+        if (hit) matchedIndices.push(i);
+    });
+
+    state.taskSearchFilteredIndices = matchedIndices;
+
+    // 显示匹配计数
+    if (matchCountEl) {
+        if (matchedIndices.length > 0) {
+            matchCountEl.textContent = `${matchedIndices.length}/${tasks.length} 条匹配`;
+            matchCountEl.classList.remove('hidden');
+        } else {
+            matchCountEl.textContent = '无匹配结果';
+            matchCountEl.classList.remove('hidden');
+        }
+    }
+
+    // 跳转到第一个匹配项并高亮
+    if (matchedIndices.length > 0) {
+        const curIndex = getTaskIndex();
+        if (!matchedIndices.includes(curIndex)) {
+            selectTask(matchedIndices[0]);
+        }
+        requestAnimationFrame(() => {
+            const activeIndex = matchedIndices.includes(curIndex) ? curIndex : matchedIndices[0];
+            const items = document.querySelectorAll('.task-item');
+            const el = items[activeIndex];
+            if (el) {
+                el.classList.add('search-highlight');
+                el.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            }
+        });
     }
 }
 
 function renderTaskList() {
     const tasks = getTasks();
     const currentIndex = getTaskIndex();
-    
+
     if (tasks.length === 0) {
         elements.taskList.innerHTML = `
             <div class="p-8 text-center text-gray-400">
@@ -3672,7 +3816,11 @@ function renderTaskList() {
         return;
     }
 
-    elements.taskList.innerHTML = tasks.map((task, index) => {
+    // 搜索时显示全部任务，不过滤
+    const indices = tasks.keys();
+
+    elements.taskList.innerHTML = Array.from(indices).map(index => {
+        const task = tasks[index];
         // 根据当前模式判断完成状态
         const isComplete = state.reviewMode === 'segment' ? task.review?.completed
             : state.reviewMode === 'audiovisual' ? task.audiovisualReview?.completed
@@ -6050,6 +6198,9 @@ window.loadDemoData = loadDemoData;
 // ============================================
 function switchReviewMode(mode) {
     if (mode !== 'segment' && mode !== 'profile' && mode !== 'audiovisual') return;
+
+    // 重置搜索状态
+    resetTaskSearch();
 
     // 退出对比模式
     if (state.comparisonMode) exitComparisonMode();
