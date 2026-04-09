@@ -4669,14 +4669,23 @@ function stripUrlQuery(url) {
 }
 
 function mergeTasksByKey(tasks) {
-    const map = new Map(); // key -> merged task
+    const map = new Map();          // key -> merged task
+    const titleMap = new Map();     // title -> key (标题到主key的映射)
 
     tasks.forEach(task => {
         // 优先用 video_url（去掉query参数）作为 key，否则用 rawId/id
-        const key = stripUrlQuery(task.video_url) || task.rawId || task.id;
+        const urlKey = stripUrlQuery(task.video_url) || task.rawId || task.id;
+        const taskTitle = (task.id || '').trim();  // title 存于 task.id
 
-        if (map.has(key)) {
-            const existing = map.get(key);
+        // 1. 先按 URL key 查找
+        let existing = map.get(urlKey);
+
+        // 2. URL 没匹配到，按标题查找
+        if (!existing && taskTitle && titleMap.has(taskTitle)) {
+            existing = map.get(titleMap.get(taskTitle));
+        }
+
+        if (existing) {
             // 追加 model_outputs 和 model_names
             const outputs = task.model_outputs || [];
             const names = task.model_names || [];
@@ -4688,7 +4697,7 @@ function mergeTasksByKey(tasks) {
                 existing.audiovisualReviews.push(null);
             });
         } else {
-            map.set(key, {
+            map.set(urlKey, {
                 id: task.id,
                 rawId: task.rawId,
                 video_url: task.video_url,
@@ -4699,6 +4708,7 @@ function mergeTasksByKey(tasks) {
                 profileReviews: [...(task.profileReviews || [null])],
                 audiovisualReviews: [...(task.audiovisualReviews || [null])]
             });
+            if (taskTitle) titleMap.set(taskTitle, urlKey);
         }
     });
 
@@ -5566,8 +5576,14 @@ function processImportData(data) {
     let mergedCount = 0;
 
     validTasks.forEach(newTask => {
-        const key = stripUrlQuery(newTask.video_url) || newTask.rawId || newTask.id;
-        const existing = existingTasks.find(t => (stripUrlQuery(t.video_url) || t.rawId || t.id) === key);
+        const urlKey = stripUrlQuery(newTask.video_url) || newTask.rawId || newTask.id;
+        const taskTitle = (newTask.id || '').trim();
+        // 1. 先按 URL key 查找
+        let existing = existingTasks.find(t => (stripUrlQuery(t.video_url) || t.rawId || t.id) === urlKey);
+        // 2. URL 没匹配到，按标题查找
+        if (!existing && taskTitle) {
+            existing = existingTasks.find(t => (t.id || '').trim() === taskTitle);
+        }
         if (existing && existing.model_outputs) {
             // 合并到已有任务中
             const newOutputs = newTask.model_outputs || [];
