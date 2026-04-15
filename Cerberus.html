@@ -101,7 +101,7 @@
         .video-container {
             border-radius: 24px;
             overflow: hidden;
-            background: black;
+            background: #1a1a1a;
             box-shadow: 0 20px 50px rgba(0,0,0,0.15); /* Cinematic shadow */
             transition: all 0.3s ease;
         }
@@ -467,7 +467,7 @@
                 
                 <!-- Center: The Cinema (Video) -->
                 <div id="video-col" class="flex-1 flex flex-col min-w-0 pb-28">
-                    <div class="video-container flex-1 relative group bg-black rounded-[32px] overflow-hidden">
+                    <div class="video-container flex-1 relative group rounded-[32px] overflow-hidden" style="background:#1a1a1a">
                         <video id="video-player" class="w-full h-full object-contain" playsinline preload="auto"></video>
 
                         <!-- Controls overlay inside video -->
@@ -2869,11 +2869,11 @@ function showUpdateBanner(version, downloadUrl) {
     icon.className = 'mdi mdi-update text-lg';
 
     const label = document.createElement('span');
-    label.textContent = `有新版本可用 (v${version})`;
+    label.textContent = `新版本已发布 (v${version})`;
 
     const dlBtn = document.createElement('button');
     dlBtn.className = 'px-3 py-0.5 bg-white text-blue-600 rounded-full text-xs font-semibold hover:bg-blue-50 transition-colors';
-    dlBtn.textContent = '下载更新';
+    dlBtn.textContent = '下载新版本';
     dlBtn.addEventListener('click', () => downloadUpdate(downloadUrl));
 
     const closeBtn = document.createElement('button');
@@ -2904,7 +2904,7 @@ async function downloadUpdate(url) {
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(a.href);
-        if (btn) btn.textContent = '已下载，请保存后刷新';
+        if (btn) btn.textContent = '已下载，请打开新文件使用';
     } catch (e) {
         if (btn) {
             btn.textContent = '下载失败，请重试';
@@ -3884,6 +3884,7 @@ function renderTaskList() {
                 <div class="flex items-center justify-between">
                     <div class="flex items-center">
                         <span class="mdi ${isComplete ? 'mdi-check-circle text-green-500' : 'mdi-circle-outline text-gray-300'} mr-2"></span>
+                        <span class="text-xs text-gray-400 mr-1">${index + 1}.</span>
                         <span class="text-sm font-medium truncate max-w-[150px] instant-tip" data-tip="${escapeHTML(displayName)}">${escapeHTML(displayName)}</span>
                     </div>
                     <div class="flex items-center gap-1">
