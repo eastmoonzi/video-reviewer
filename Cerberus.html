@@ -167,9 +167,17 @@
         /* 展开时隐藏工具栏里的导航按钮（各面板内已有） */
         #rating-dock-body:not(.dock-collapsed) #toolbar-nav-btns { display: none; }
 
-        /* 底部模式备注框默认加高 */
+        /* 底部 dock：备注框默认收起，聚焦时展开 */
         #rating-dock .av-rate-note {
-            height: 3.5em; min-height: 3.5em;
+            height: 1.5em; min-height: 1.5em;
+            transition: height 0.15s ease;
+        }
+        #rating-dock .av-rate-note:focus {
+            height: 5em; min-height: 5em;
+        }
+        /* 已填写内容时保持 2 行高度 */
+        #rating-dock .av-rate-note:not(:placeholder-shown) {
+            height: 2.6em; min-height: 2.6em;
         }
         
         /* Scrollbar hiding */
@@ -295,6 +303,17 @@
             padding-top: 8px; margin-top: 8px;
             justify-content: flex-end;
         }
+
+    /* ── 真全屏 ── */
+    body:fullscreen { background: #fff; }
+    body:fullscreen #task-sidebar { display: none !important; }
+    body:fullscreen main {
+        margin-left: 0 !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+        border: none !important;
+    }
+    .fs-btn-active { color: #1f2937 !important; background: #f3f4f6 !important; }
     </style>
 </head>
 <body class="h-screen w-screen overflow-hidden flex selection:bg-blue-100 selection:text-blue-900">
@@ -413,7 +432,7 @@
             <!-- Bug report -->
             <a href="https://ku.baidu-int.com/knowledge/HFVrC7hq1Q/pKzJfZczuc/eSUzhRjlC9/brU8mPglEHsDrC"
                target="_blank" rel="noopener"
-               class="absolute right-28 text-xs text-gray-400 hover:text-gray-600 transition-colors">报个 bug</a>
+               class="absolute right-52 text-xs text-gray-400 hover:text-gray-600 transition-colors">报个 bug</a>
             <!-- Help -->
             <button onclick="showHelp()" class="absolute right-6 w-7 h-7 rounded-full bg-white/80 hover:bg-white shadow-sm flex items-center justify-center text-gray-400 transition-all">
                 <span class="mdi mdi-help text-base"></span>
@@ -421,6 +440,10 @@
             <!-- Settings -->
             <button onclick="showSettings()" class="absolute right-16 w-7 h-7 rounded-full bg-white/80 hover:bg-white shadow-sm flex items-center justify-center text-gray-400 transition-all" title="LLM 修复设置">
                 <span class="mdi mdi-cog text-base"></span>
+            </button>
+            <!-- 全屏 -->
+            <button id="btn-native-fullscreen" onclick="toggleNativeFullscreen()" class="absolute right-28 w-7 h-7 rounded-full bg-white/80 hover:bg-white shadow-sm flex items-center justify-center text-gray-400 transition-all" title="全屏">
+                <span class="mdi mdi-fullscreen text-base"></span>
             </button>
         </div>
 
@@ -916,8 +939,8 @@
 
             <!-- Audiovisual Rating Dock: 16 dimensions, 0-2 numeric circles -->
             <div id="audiovisual-rating-dock" class="hidden flex items-start gap-4">
-                <div class="flex flex-wrap gap-x-3 gap-y-2 flex-1 no-scrollbar">
-                    <div class="av-rate-cell min-w-[72px]">
+                <div class="grid gap-x-3 gap-y-2 flex-1 no-scrollbar" style="grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));">
+                    <div class="av-rate-cell">
                         <div class="av-rate-top"><span class="av-rate-label">总体</span>
                             <div class="rating-group flex" data-dimension="overall_quality" data-mode="audiovisual">
                                 <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
@@ -927,7 +950,7 @@
                         </div>
                         <textarea rows="1" id="dock-note-overall_quality" placeholder="备注..." class="av-rate-note"></textarea>
                     </div>
-                    <div class="av-rate-cell min-w-[72px]">
+                    <div class="av-rate-cell">
                         <div class="av-rate-top"><span class="av-rate-label">加工</span>
                             <div class="rating-group flex" data-dimension="processing_elements" data-mode="audiovisual">
                                 <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
@@ -937,7 +960,7 @@
                         </div>
                         <textarea rows="1" id="dock-note-processing_elements" placeholder="备注..." class="av-rate-note"></textarea>
                     </div>
-                    <div class="av-rate-cell min-w-[72px]">
+                    <div class="av-rate-cell">
                         <div class="av-rate-top"><span class="av-rate-label">加工时间</span>
                             <div class="rating-group flex" data-dimension="processing_elements_time" data-mode="audiovisual">
                                 <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
@@ -947,7 +970,7 @@
                         </div>
                         <textarea rows="1" id="dock-note-processing_elements_time" placeholder="备注..." class="av-rate-note"></textarea>
                     </div>
-                    <div class="av-rate-cell min-w-[72px]">
+                    <div class="av-rate-cell">
                         <div class="av-rate-top"><span class="av-rate-label">构图</span>
                             <div class="rating-group flex" data-dimension="composition" data-mode="audiovisual">
                                 <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
@@ -957,7 +980,7 @@
                         </div>
                         <textarea rows="1" id="dock-note-composition" placeholder="备注..." class="av-rate-note"></textarea>
                     </div>
-                    <div class="av-rate-cell min-w-[72px]">
+                    <div class="av-rate-cell">
                         <div class="av-rate-top"><span class="av-rate-label">构图时间</span>
                             <div class="rating-group flex" data-dimension="composition_time" data-mode="audiovisual">
                                 <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
@@ -967,7 +990,7 @@
                         </div>
                         <textarea rows="1" id="dock-note-composition_time" placeholder="备注..." class="av-rate-note"></textarea>
                     </div>
-                    <div class="av-rate-cell min-w-[72px]">
+                    <div class="av-rate-cell">
                         <div class="av-rate-top"><span class="av-rate-label">人物</span>
                             <div class="rating-group flex" data-dimension="person" data-mode="audiovisual">
                                 <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
@@ -977,7 +1000,7 @@
                         </div>
                         <textarea rows="1" id="dock-note-person" placeholder="备注..." class="av-rate-note"></textarea>
                     </div>
-                    <div class="av-rate-cell min-w-[72px]">
+                    <div class="av-rate-cell">
                         <div class="av-rate-top"><span class="av-rate-label">人物时间</span>
                             <div class="rating-group flex" data-dimension="person_time" data-mode="audiovisual">
                                 <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
@@ -987,7 +1010,7 @@
                         </div>
                         <textarea rows="1" id="dock-note-person_time" placeholder="备注..." class="av-rate-note"></textarea>
                     </div>
-                    <div class="av-rate-cell min-w-[72px]">
+                    <div class="av-rate-cell">
                         <div class="av-rate-top"><span class="av-rate-label">生物</span>
                             <div class="rating-group flex" data-dimension="creature" data-mode="audiovisual">
                                 <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
@@ -997,7 +1020,7 @@
                         </div>
                         <textarea rows="1" id="dock-note-creature" placeholder="备注..." class="av-rate-note"></textarea>
                     </div>
-                    <div class="av-rate-cell min-w-[72px]">
+                    <div class="av-rate-cell">
                         <div class="av-rate-top"><span class="av-rate-label">生物时间</span>
                             <div class="rating-group flex" data-dimension="creature_time" data-mode="audiovisual">
                                 <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
@@ -1007,7 +1030,7 @@
                         </div>
                         <textarea rows="1" id="dock-note-creature_time" placeholder="备注..." class="av-rate-note"></textarea>
                     </div>
-                    <div class="av-rate-cell min-w-[72px]">
+                    <div class="av-rate-cell">
                         <div class="av-rate-top"><span class="av-rate-label">信息</span>
                             <div class="rating-group flex" data-dimension="info_attributes" data-mode="audiovisual">
                                 <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
@@ -1017,7 +1040,7 @@
                         </div>
                         <textarea rows="1" id="dock-note-info_attributes" placeholder="备注..." class="av-rate-note"></textarea>
                     </div>
-                    <div class="av-rate-cell min-w-[72px]">
+                    <div class="av-rate-cell">
                         <div class="av-rate-top"><span class="av-rate-label">真实性</span>
                             <div class="rating-group flex" data-dimension="questionable_info" data-mode="audiovisual">
                                 <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
@@ -1027,7 +1050,7 @@
                         </div>
                         <textarea rows="1" id="dock-note-questionable_info" placeholder="备注..." class="av-rate-note"></textarea>
                     </div>
-                    <div class="av-rate-cell min-w-[72px]">
+                    <div class="av-rate-cell">
                         <div class="av-rate-top"><span class="av-rate-label">地理</span>
                             <div class="rating-group flex" data-dimension="geographic_info" data-mode="audiovisual">
                                 <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
@@ -1037,7 +1060,7 @@
                         </div>
                         <textarea rows="1" id="dock-note-geographic_info" placeholder="备注..." class="av-rate-note"></textarea>
                     </div>
-                    <div class="av-rate-cell min-w-[72px]">
+                    <div class="av-rate-cell">
                         <div class="av-rate-top"><span class="av-rate-label">时效</span>
                             <div class="rating-group flex" data-dimension="timeliness_info" data-mode="audiovisual">
                                 <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
@@ -1047,7 +1070,7 @@
                         </div>
                         <textarea rows="1" id="dock-note-timeliness_info" placeholder="备注..." class="av-rate-note"></textarea>
                     </div>
-                    <div class="av-rate-cell min-w-[72px]">
+                    <div class="av-rate-cell">
                         <div class="av-rate-top"><span class="av-rate-label">低俗</span>
                             <div class="rating-group flex" data-dimension="vulgar_intent" data-mode="audiovisual">
                                 <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
@@ -1057,7 +1080,7 @@
                         </div>
                         <textarea rows="1" id="dock-note-vulgar_intent" placeholder="备注..." class="av-rate-note"></textarea>
                     </div>
-                    <div class="av-rate-cell min-w-[72px]">
+                    <div class="av-rate-cell">
                         <div class="av-rate-top"><span class="av-rate-label">营销</span>
                             <div class="rating-group flex" data-dimension="promotional_intent" data-mode="audiovisual">
                                 <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
@@ -1067,7 +1090,7 @@
                         </div>
                         <textarea rows="1" id="dock-note-promotional_intent" placeholder="备注..." class="av-rate-note"></textarea>
                     </div>
-                    <div class="av-rate-cell min-w-[72px]">
+                    <div class="av-rate-cell">
                         <div class="av-rate-top"><span class="av-rate-label">营销时间</span>
                             <div class="rating-group flex" data-dimension="promotional_intent_time" data-mode="audiovisual">
                                 <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
@@ -1077,7 +1100,7 @@
                         </div>
                         <textarea rows="1" id="dock-note-promotional_intent_time" placeholder="备注..." class="av-rate-note"></textarea>
                     </div>
-                    <div class="av-rate-cell min-w-[72px]">
+                    <div class="av-rate-cell">
                         <div class="av-rate-top"><span class="av-rate-label">道德</span>
                             <div class="rating-group flex" data-dimension="immoral_values" data-mode="audiovisual">
                                 <span class="rating-star mdi mdi-numeric-0-circle-outline text-sm cursor-pointer" data-value="0"></span>
@@ -1236,7 +1259,7 @@
 // ============================================
 // 视频审查工作台 - 主应用逻辑
 // build: 2026-03-10a
-const APP_VERSION = '2026-0409a';
+const APP_VERSION = '2026-0415a';
 // ============================================
 console.log('%c[app.js] 脚本已加载 ' + new Date().toLocaleTimeString(), 'color:green;font-weight:bold');
 
@@ -3261,7 +3284,9 @@ function selectTask(index) {
     }
 
     // 重新应用当前倍速设置（load() 会重置 playbackRate）
-    const rateSelect = document.getElementById('playback-rate');
+    const rateSelect = (state.comparisonMode
+        ? document.getElementById('comp-playback-rate')
+        : null) || document.getElementById('playback-rate');
     if (rateSelect) {
         elements.videoPlayer.playbackRate = parseFloat(rateSelect.value);
     }
@@ -3416,22 +3441,29 @@ function saveModelManager() {
     // 检查是否有排序变化
     const hasReorder = order.some((origIdx, i) => origIdx !== i);
 
-    if (hasReorder) {
-        // 按新顺序重排所有并行数组
-        const reorder = (arr) => {
-            if (!arr || !Array.isArray(arr)) return arr;
-            return order.map(origIdx => arr[origIdx]);
-        };
-        task.model_outputs = reorder(task.model_outputs);
-        task.reviews = reorder(task.reviews);
-        task.profileReviews = reorder(task.profileReviews);
-        task.audiovisualReviews = reorder(task.audiovisualReviews);
-        task.model_output = task.model_outputs[0] || {};
-        state.currentOutputGroup = 0;
-    }
+    // 全局生效：对当前模式所有任务应用相同的顺序变更和名称更新
+    const reorder = (arr) => {
+        if (!arr || !Array.isArray(arr)) return arr;
+        return order.map(origIdx => arr[origIdx] ?? null);
+    };
+    getTasks().forEach(t => {
+        if (hasReorder) {
+            t.model_outputs = reorder(t.model_outputs);
+            t.reviews = reorder(t.reviews);
+            t.profileReviews = reorder(t.profileReviews);
+            t.audiovisualReviews = reorder(t.audiovisualReviews);
+            if (t.autoEvals) t.autoEvals = reorder(t.autoEvals);
+            if (t.profileAutoEvals) t.profileAutoEvals = reorder(t.profileAutoEvals);
+            t.model_output = t.model_outputs[0] || {};
+        }
+        t.model_names = [...newNames];
+    });
 
-    // 更新名称（用重排后的新名称）
-    task.model_names = newNames;
+    if (hasReorder) {
+        state.currentOutputGroup = 0;
+        // 对比列索引随顺序重置
+        state.comparisonGroups = [0, Math.min(1, newNames.length - 1)];
+    }
 
     saveToLocalStorage();
     closeModelManager();
@@ -7808,8 +7840,22 @@ function buildComparisonView(container, task) {
         }
         select.addEventListener('change', (e) => {
             const colIdx = parseInt(e.target.dataset.colIndex);
-            state.comparisonGroups[colIdx] = parseInt(e.target.value);
-            renderComparisonColumn(col.querySelector('.comp-body'), task, state.comparisonGroups[colIdx]);
+            const newVal = parseInt(e.target.value);
+            const otherIdx = colIdx === 0 ? 1 : 0;
+            if (newVal === state.comparisonGroups[otherIdx]) {
+                e.target.value = state.comparisonGroups[colIdx];
+                return;
+            }
+            state.comparisonGroups[colIdx] = newVal;
+            // diff 模式下两列互相依赖，需要同时刷新
+            if (state.comparisonDiff) {
+                document.querySelectorAll('#comparison-columns .comparison-column').forEach((c, ci) => {
+                    const body = c.querySelector('.comp-body');
+                    if (body) renderComparisonColumn(body, task, state.comparisonGroups[ci]);
+                });
+            } else {
+                renderComparisonColumn(col.querySelector('.comp-body'), task, state.comparisonGroups[colIdx]);
+            }
         });
         header.appendChild(select);
         col.appendChild(header);
@@ -7952,68 +7998,20 @@ function renderComparisonColumn(bodyEl, task, groupIndex) {
 // 逐字 Diff 引擎（LCS，豁免标点 + 数字格式）
 // ============================================
 
-// 中文数字 → 阿拉伯数字归一化
-function chineseNumberToArabic(str) {
-    const digitMap = {
-        '零':0,'〇':0,'一':1,'壹':1,'二':2,'贰':2,'两':2,
-        '三':3,'叁':3,'四':4,'肆':4,'五':5,'伍':5,
-        '六':6,'陆':6,'七':7,'柒':7,'八':8,'捌':8,'九':9,'玖':9
-    };
-    const unitMap = {
-        '十':10,'拾':10,'百':100,'佰':100,'千':1000,'仟':1000,
-        '万':10000,'萬':10000,'亿':100000000,'億':100000000
-    };
-    const cnChars = Object.keys(digitMap).join('') + Object.keys(unitMap).join('');
-    const re = new RegExp('[' + cnChars + ']{1,}', 'g');
-
-    return str.replace(re, match => {
-        // 纯数字字符无位值词（如"一二三"作为序号）→ 逐字转换
-        const hasUnit = [...match].some(c => c in unitMap);
-        if (!hasUnit) {
-            return [...match].map(c => digitMap[c] !== undefined ? String(digitMap[c]) : c).join('');
-        }
-        // 有位值词 → 三层累加器解析（亿 > 万 > 千百十）
-        let yiSection = 0, wanSection = 0, current = 0;
-        for (const c of match) {
-            if (c in digitMap) {
-                current = digitMap[c];
-            } else if (c in unitMap) {
-                const unit = unitMap[c];
-                if (unit === 100000000) {
-                    // 亿级：前面所有累积 × 亿
-                    yiSection = (yiSection + wanSection + (current || 1)) * unit;
-                    wanSection = 0; current = 0;
-                } else if (unit === 10000) {
-                    // 万级：当前万以下部分 × 万（不用 ||1，避免干扰已有累积）
-                    wanSection = (wanSection + current) * unit;
-                    current = 0;
-                } else {
-                    // 十/百/千级（||1 处理"十"="一十"=10 的省略写法）
-                    wanSection += (current || 1) * unit;
-                    current = 0;
-                }
-            }
-        }
-        const result = yiSection + wanSection + current;
-        return String(result);
-    });
-}
-
 function diffNormalizeText(t) {
     let s = String(t || '');
-    s = chineseNumberToArabic(s);
     s = s.replace(/\s/g, '')
-         .replace(/[\u3000-\u303F]/g, '')
-         .replace(/[\uFF00-\uFFEF]/g, '')
-         .replace(/[^\u4e00-\u9fa5\u0030-\u0039\u0041-\u005A\u0061-\u007A\u4E00-\u9FFF]/g, '');
+         .replace(/[\u3000-\u303F\uFF00-\uFFEF]/g, '')
+         .replace(/[^\u4e00-\u9fff\u0030-\u0039\u0041-\u005A\u0061-\u007A]/g, '');
     return s;
 }
 
 function computeDiff(a, b) {
     a = diffNormalizeText(a);
     b = diffNormalizeText(b);
-    if (a === b) return [{ type: 'equal', text: a }];
+    if (a === b) return [{ type: 'equal', text: a, truncated: false }];
 
+    const truncated = a.length > 3000 || b.length > 3000;
     const capA = a.slice(0, 3000), capB = b.slice(0, 3000);
     const ma = capA.length, nb = capB.length;
 
@@ -8048,6 +8046,7 @@ function computeDiff(a, b) {
             groups.push({ type: op.type, text: op.ch });
         }
     }
+    groups.truncated = truncated;
     return groups;
 }
 
@@ -8095,22 +8094,20 @@ function generateSegmentDiffTextHTML(mySegments, otherSegments) {
     const otherText = (otherSegments || []).map(s => s.description || s.text || '').join('\n');
     if (!myText && !otherText) return '<div class="text-gray-400 text-center py-4">暂无文本数据</div>';
 
-    const groups = computeDiff(myText, otherText);
-    const stats = calcDiffStats(groups, myText, otherText);
+    const groups = computeDiff(otherText, myText);
+    const stats = calcDiffStats(groups, otherText, myText);
     const diffHtml = renderDiffHtml(groups);
 
-    const normA = diffNormalizeText(myText);
-    const normB = diffNormalizeText(otherText);
-    const base = Math.max(normA.length, normB.length, 1);
-    const consistency = (100 - (stats.insChars + stats.delChars) / base * 100).toFixed(1);
-    const consistencyColor = parseFloat(consistency) >= 100 ? 'text-green-600'
-        : parseFloat(consistency) >= 80 ? 'text-yellow-600' : 'text-red-600';
+    const consistency = stats.consistency.toFixed(1);
+    const consistencyColor = stats.consistency >= 100 ? 'text-green-600'
+        : stats.consistency >= 80 ? 'text-yellow-600' : 'text-red-600';
 
     const summary = `
         <div class="flex items-center gap-4 px-3 py-2 rounded-xl bg-gray-50 border border-gray-100 text-xs text-gray-500 mb-2">
             <span>一致率 <b class="${consistencyColor} text-sm">${consistency}%</b></span>
             <span>新增 <b class="text-gray-700">${stats.insChars}</b> 字符</span>
             <span>删除 <b class="text-gray-700">${stats.delChars}</b> 字符</span>
+            ${groups.truncated ? '<span class="text-amber-500" title="文本超过3000字符，仅对比前3000字符">⚠ 已截断</span>' : ''}
         </div>`;
 
     return summary + `
@@ -8411,6 +8408,21 @@ function exitComparisonMode() {
         }
     }
 }
+
+// ── 真全屏 ──
+function toggleNativeFullscreen() {
+    if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen?.().catch(() => {});
+    } else {
+        document.exitFullscreen?.();
+    }
+}
+
+document.addEventListener('fullscreenchange', () => {
+    const on = !!document.fullscreenElement;
+    document.getElementById('btn-native-fullscreen')
+        ?.classList.toggle('fs-btn-active', on);
+});
 
 // 全局注册
 window.toggleComparisonMode = toggleComparisonMode;
