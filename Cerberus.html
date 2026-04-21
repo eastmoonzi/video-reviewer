@@ -6007,10 +6007,8 @@ function detectExcelColumns(headerRow) {
     return { nidCol, urlCol, titleCol, modelCols, evalCols, scoreCols, noteCols, skipColIndices };
 }
 
-// 解析Excel文件 (.xlsx) - 支持多列JSON数据
-function parseExcel(arrayBuffer) {
-    // 读取时启用超链接解析
-    const workbook = XLSX.read(arrayBuffer, { type: 'array', raw: false });
+// 解析Workbook对象 - 支持多列JSON数据
+function parseWorkbook(workbook) {
     const firstSheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[firstSheetName];
 
@@ -6018,10 +6016,10 @@ function parseExcel(arrayBuffer) {
     const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false, defval: '' });
 
     if (rows.length === 0) {
-        throw new Error('Excel 文件为空');
+        throw new Error('文件为空');
     }
 
-    console.log('Excel 解析原始数据行数:', rows.length);
+    console.log('解析原始数据行数:', rows.length);
 
     const headerRow = rows[0];
     const { nidCol, urlCol, titleCol, modelCols, evalCols, scoreCols, noteCols, skipColIndices } = detectExcelColumns(headerRow);
@@ -6136,6 +6134,16 @@ function parseExcel(arrayBuffer) {
 
         return obj;
     }).filter(task => task.video_url);
+}
+
+function parseExcel(arrayBuffer) {
+    const workbook = XLSX.read(arrayBuffer, { type: 'array', raw: false });
+    return parseWorkbook(workbook);
+}
+
+function parseCsv(text) {
+    const workbook = XLSX.read(text, { type: 'string', raw: false });
+    return parseWorkbook(workbook);
 }
 
 // 将原始片段数组转换为标准格式
