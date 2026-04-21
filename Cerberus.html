@@ -4649,18 +4649,31 @@ async function repairAndDownload() {
 
     const jsonlFiles = files.filter(f => f.name.endsWith('.jsonl'));
     const excelFiles = files.filter(f => f.name.endsWith('.xlsx') || f.name.endsWith('.xls'));
-    const otherFiles = files.filter(f => !f.name.endsWith('.jsonl') && !f.name.endsWith('.xlsx') && !f.name.endsWith('.xls'));
+    const csvFiles  = files.filter(f => f.name.endsWith('.csv'));
+    const otherFiles = files.filter(f =>
+        !f.name.endsWith('.jsonl') &&
+        !f.name.endsWith('.xlsx') && !f.name.endsWith('.xls') &&
+        !f.name.endsWith('.csv')
+    );
 
     if (otherFiles.length > 0) {
-        alert('请选择 Excel (.xlsx/.xls) 或 JSONL (.jsonl) 格式文件');
+        alert('请选择 Excel (.xlsx/.xls)、JSONL (.jsonl) 或 CSV (.csv) 格式文件');
         return;
     }
-    if (jsonlFiles.length > 0 && excelFiles.length > 0) {
-        alert('不支持同时处理 Excel 和 JSONL 文件');
+    if (jsonlFiles.length > 0 && (excelFiles.length > 0 || csvFiles.length > 0)) {
+        alert('不支持同时处理 JSONL 与表格文件');
+        return;
+    }
+    if (excelFiles.length > 0 && csvFiles.length > 0) {
+        alert('不支持同时处理 Excel 和 CSV 文件');
         return;
     }
     if (excelFiles.length > 1) {
         alert('Excel 文件只能选择一个');
+        return;
+    }
+    if (csvFiles.length > 1) {
+        alert('CSV 文件只能选择一个');
         return;
     }
 
@@ -4675,7 +4688,9 @@ async function repairAndDownload() {
 
     try {
         if (excelFiles.length === 1) {
-            await repairExcelAndDownload(excelFiles[0], mode, schema);
+            await repairExcelAndDownload(excelFiles[0], mode, schema, false);
+        } else if (csvFiles.length === 1) {
+            await repairExcelAndDownload(csvFiles[0], mode, schema, true);
         } else {
             await repairJsonlAndDownload(jsonlFiles, mode, schema);
         }
@@ -4700,17 +4715,27 @@ function showRepairSummary(stats) {
     alert('修复完成！\n' + parts.join('\n'));
 }
 
-async function repairExcelAndDownload(file, mode, schema) {
-    updateRepairProgress('读取 Excel 文件...', 0);
+async function repairExcelAndDownload(file, mode, schema, isCsv = false) {
+    updateRepairProgress(`读取${isCsv ? ' CSV' : ' Excel'} 文件...`, 0);
 
-    const arrayBuffer = await new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = e => resolve(e.target.result);
-        reader.onerror = () => reject(new Error('文件读取失败'));
-        reader.readAsArrayBuffer(file);
-    });
-
-    const workbook = XLSX.read(arrayBuffer, { type: 'array', raw: false });
+    let workbook;
+    if (isCsv) {
+        const text = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = e => resolve(e.target.result);
+            reader.onerror = () => reject(new Error('文件读取失败'));
+            reader.readAsText(file, 'UTF-8');
+        });
+        workbook = XLSX.read(text, { type: 'string', raw: false });
+    } else {
+        const arrayBuffer = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = e => resolve(e.target.result);
+            reader.onerror = () => reject(new Error('文件读取失败'));
+            reader.readAsArrayBuffer(file);
+        });
+        workbook = XLSX.read(arrayBuffer, { type: 'array', raw: false });
+    }
     const sheetName = workbook.SheetNames[0];
     const worksheet = workbook.Sheets[sheetName];
     const rows = XLSX.utils.sheet_to_json(worksheet, { header: 1, raw: false, defval: '' });
@@ -4849,13 +4874,18 @@ async function repairExcelAndDownload(file, mode, schema) {
         }
     }
 
-    // 写回 Excel 并下载
+    // 写回并下载
     updateRepairProgress('生成修复后文件...', 98);
     const newWs = XLSX.utils.aoa_to_sheet(rows);
     const newWb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(newWb, newWs, sheetName);
     const outName = file.name.replace(/(\.[^.]+)$/, '_fixed$1');
-    XLSX.writeFile(newWb, outName);
+    if (isCsv) {
+        const csvContent = XLSX.utils.sheet_to_csv(newWs);
+        downloadBlob(new Blob([csvContent], { type: 'text/csv;charset=utf-8;' }), outName);
+    } else {
+        XLSX.writeFile(newWb, outName);
+    }
 
     updateRepairProgress('完成！', 100);
     showRepairSummary(stats);
