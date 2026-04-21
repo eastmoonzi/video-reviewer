@@ -1190,6 +1190,19 @@
         </div>
     </div>
 
+    <!-- 评分结果导入冲突弹窗 -->
+    <div id="result-import-conflict-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
+        <div class="bg-white rounded-lg shadow-xl w-[420px] p-6">
+            <h3 class="text-base font-bold mb-3">发现评分冲突</h3>
+            <p id="conflict-count-text" class="text-sm text-gray-600 mb-2"></p>
+            <p class="text-sm text-gray-400 mb-5">选择如何处理这些已有评分记录：</p>
+            <div class="flex justify-end gap-2">
+                <button onclick="resolveConflictModal(false)" class="px-4 py-2 bg-gray-200 rounded hover:bg-gray-300 text-sm">跳过所有</button>
+                <button onclick="resolveConflictModal(true)" class="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 text-sm">覆盖所有</button>
+            </div>
+        </div>
+    </div>
+
     <!-- 帮助模态框 -->
     <div id="help-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
         <div class="bg-white rounded-lg shadow-xl w-[500px] max-h-[80vh] overflow-auto">
@@ -1281,7 +1294,7 @@
 // ============================================
 // 视频审查工作台 - 主应用逻辑
 // build: 2026-03-10a
-const APP_VERSION = '2026-0421b';
+const APP_VERSION = '2026-0421c';
 // ============================================
 console.log('%c[app.js] 脚本已加载 ' + new Date().toLocaleTimeString(), 'color:green;font-weight:bold');
 
@@ -5044,8 +5057,15 @@ function confirmImport() {
         const reader = new FileReader();
         reader.onload = (e) => {
             try {
-                const data = parseExcel(e.target.result);
-                processImportData(data);
+                const workbook = XLSX.read(e.target.result, { type: 'array', raw: false });
+                const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                const rows = XLSX.utils.sheet_to_json(firstSheet, { raw: false, defval: '' });
+                if (rows.length > 0 && '__模型输出JSON' in rows[0]) {
+                    importResultsFromExcel(rows);
+                } else {
+                    const data = parseWorkbook(workbook);
+                    processImportData(data);
+                }
             } catch (err) {
                 alert('文件解析失败: ' + err.message);
                 console.error('解析错误:', err);
@@ -7865,7 +7885,11 @@ function exportSegmentResults() {
                     '文本理解备注': notes.text || '',
                     '视觉理解备注': notes.visual || '',
                     '关键帧备注': notes.keyframe || '',
-                    '完成时间': review?.timestamp ? new Date(review.timestamp).toLocaleString('zh-CN') : ''
+                    '完成时间': review?.timestamp ? new Date(review.timestamp).toLocaleString('zh-CN') : '',
+                    '__任务原始ID': task.rawId || '',
+                    '__视频标题': task.id || '',
+                    '__视频时长': task.video_duration != null ? task.video_duration : '',
+                    '__模型输出JSON': JSON.stringify(task.model_outputs?.[groupIndex] || {})
                 });
             });
         } else {
@@ -7887,7 +7911,11 @@ function exportSegmentResults() {
                 '文本理解备注': notes.text || '',
                 '视觉理解备注': notes.visual || '',
                 '关键帧备注': notes.keyframe || '',
-                '完成时间': review.timestamp ? new Date(review.timestamp).toLocaleString('zh-CN') : ''
+                '完成时间': review.timestamp ? new Date(review.timestamp).toLocaleString('zh-CN') : '',
+                '__任务原始ID': task.rawId || '',
+                '__视频标题': task.id || '',
+                '__视频时长': task.video_duration != null ? task.video_duration : '',
+                '__模型输出JSON': JSON.stringify(task.model_outputs?.[0] || task.model_output || {})
             });
         }
     });
@@ -7896,7 +7924,8 @@ function exportSegmentResults() {
     worksheet['!cols'] = [
         { wch: 10 }, { wch: 50 }, { wch: 15 }, { wch: 8 },
         { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 },
-        { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 20 }
+        { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 20 },
+        { wch: 15 }, { wch: 20 }, { wch: 10 }, { wch: 60 }
     ];
 
     const workbook = XLSX.utils.book_new();
@@ -7938,7 +7967,11 @@ function exportProfileResults() {
                     '主题一致性备注': notes.topic_consistency || '',
                     '核心观点备注': notes.core_claim || '',
                     '情感类型备注': notes.emotion_type || '',
-                    '完成时间': review?.timestamp ? new Date(review.timestamp).toLocaleString('zh-CN') : ''
+                    '完成时间': review?.timestamp ? new Date(review.timestamp).toLocaleString('zh-CN') : '',
+                    '__任务原始ID': task.rawId || '',
+                    '__视频标题': task.id || '',
+                    '__视频时长': task.video_duration != null ? task.video_duration : '',
+                    '__模型输出JSON': JSON.stringify(task.model_outputs?.[groupIndex] || {})
                 });
             });
         } else {
@@ -7966,7 +7999,11 @@ function exportProfileResults() {
                 '主题一致性备注': notes.topic_consistency || '',
                 '核心观点备注': notes.core_claim || '',
                 '情感类型备注': notes.emotion_type || '',
-                '完成时间': review.timestamp ? new Date(review.timestamp).toLocaleString('zh-CN') : ''
+                '完成时间': review.timestamp ? new Date(review.timestamp).toLocaleString('zh-CN') : '',
+                '__任务原始ID': task.rawId || '',
+                '__视频标题': task.id || '',
+                '__视频时长': task.video_duration != null ? task.video_duration : '',
+                '__模型输出JSON': JSON.stringify(task.model_outputs?.[0] || task.model_output || {})
             });
         }
     });
@@ -7976,9 +8013,10 @@ function exportProfileResults() {
         { wch: 10 }, { wch: 50 }, { wch: 15 }, { wch: 8 },
         { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 14 },
         { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 20 }, { wch: 20 },
-        { wch: 20 }
+        { wch: 20 },
+        { wch: 15 }, { wch: 20 }, { wch: 10 }, { wch: 60 }
     ];
-    
+
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, '全篇语义画像');
     XLSX.writeFile(workbook, `全篇语义画像-${new Date().toISOString().slice(0, 10)}.xlsx`);
@@ -7988,7 +8026,7 @@ function exportAudiovisualResults() {
     const tasks = getTasks();
     const exportData = [];
 
-    const buildRow = (task, review, modelName) => {
+    const buildRow = (task, review, modelName, groupIndex = 0) => {
         const ratings = review?.ratings || {};
         const notes = review?.notes || {};
         const row = {
@@ -8002,6 +8040,10 @@ function exportAudiovisualResults() {
             row[`${dim.label}备注`] = notes[dim.key] || '';
         });
         row['完成时间'] = review?.timestamp ? new Date(review.timestamp).toLocaleString('zh-CN') : '';
+        row['__任务原始ID'] = task.rawId || '';
+        row['__视频标题'] = task.id || '';
+        row['__视频时长'] = task.video_duration != null ? task.video_duration : '';
+        row['__模型输出JSON'] = JSON.stringify(task.model_outputs?.[groupIndex] || {});
         return row;
     };
 
@@ -8012,12 +8054,12 @@ function exportAudiovisualResults() {
             task.audiovisualReviews.forEach((review, groupIndex) => {
                 if (task.model_outputs?.[groupIndex]?._parseError) return; // 跳过解析失败条目
                 const modelName = task.model_names?.[groupIndex] || `模型${groupIndex + 1}`;
-                exportData.push(buildRow(task, review, modelName));
+                exportData.push(buildRow(task, review, modelName, groupIndex));
             });
         } else {
             const review = task.audiovisualReviews?.[0] || {};
             const modelName = task.model_names?.[0] || '-';
-            exportData.push(buildRow(task, review, modelName));
+            exportData.push(buildRow(task, review, modelName, 0));
         }
     });
 
@@ -8030,11 +8072,224 @@ function exportAudiovisualResults() {
         cols.push({ wch: 12 }, { wch: 20 });
     });
     cols.push({ wch: 20 });
+    cols.push({ wch: 15 }, { wch: 20 }, { wch: 10 }, { wch: 60 });
     worksheet['!cols'] = cols;
 
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, '基础音画质量');
     XLSX.writeFile(workbook, `基础音画质量-${new Date().toISOString().slice(0, 10)}.xlsx`);
+}
+
+// ============================================
+// 评分结果重新导入
+// ============================================
+
+function buildReviewFromRow(row, mode) {
+    const completed = row['状态'] === '已完成';
+    const ts = new Date().toISOString();
+    if (mode === 'segment') {
+        return {
+            mode: 'segment',
+            ratings: {
+                time:     Number(row['时间段切分评分']) || 0,
+                text:     Number(row['文本理解评分'])   || 0,
+                visual:   Number(row['视觉理解评分'])   || 0,
+                keyframe: Number(row['关键帧评分'])     || 0
+            },
+            notes: {
+                time:     row['时间段切分备注'] || '',
+                text:     row['文本理解备注']   || '',
+                visual:   row['视觉理解备注']   || '',
+                keyframe: row['关键帧备注']     || ''
+            },
+            completed, timestamp: ts
+        };
+    }
+    if (mode === 'profile') {
+        const r = (col) => { const v = row[col]; return (v !== '' && v != null) ? Number(v) : -1; };
+        return {
+            mode: 'profile',
+            ratings: {
+                narrative_type:    r('叙事类型评分'),
+                visual_type:       r('画面类型评分'),
+                summary:           r('内容总结评分'),
+                intent_type:       r('创作意图评分'),
+                topic_consistency: r('主题一致性评分'),
+                core_claim:        r('核心观点评分'),
+                emotion_type:      r('情感类型评分')
+            },
+            notes: {
+                narrative_type:    row['叙事类型备注']    || '',
+                visual_type:       row['画面类型备注']    || '',
+                summary:           row['内容总结备注']    || '',
+                intent_type:       row['创作意图备注']    || '',
+                topic_consistency: row['主题一致性备注']  || '',
+                core_claim:        row['核心观点备注']    || '',
+                emotion_type:      row['情感类型备注']    || ''
+            },
+            completed, timestamp: ts
+        };
+    }
+    // audiovisual
+    const ratings = {};
+    const notes = {};
+    AUDIOVISUAL_DIMENSIONS.forEach(dim => {
+        const v = row[`${dim.label}评分`];
+        ratings[dim.key] = (v !== '' && v != null) ? Number(v) : -1;
+        notes[dim.key]   = row[`${dim.label}备注`] || '';
+    });
+    return { mode: 'audiovisual', ratings, notes, completed, timestamp: ts };
+}
+
+function applyReview(task, groupIndex, reviewData, mode) {
+    if (mode === 'segment') {
+        if (!task.reviews) task.reviews = (task.model_outputs || [{}]).map(() => null);
+        task.reviews[groupIndex] = reviewData;
+    } else if (mode === 'profile') {
+        if (!task.profileReviews) task.profileReviews = (task.model_outputs || [{}]).map(() => null);
+        task.profileReviews[groupIndex] = reviewData;
+    } else {
+        if (!task.audiovisualReviews) task.audiovisualReviews = (task.model_outputs || [{}]).map(() => null);
+        task.audiovisualReviews[groupIndex] = reviewData;
+    }
+}
+
+function buildTaskFromRow(row, mode) {
+    const rawJsonStr = row['__模型输出JSON'];
+    if (!rawJsonStr) return null;
+    let modelOutput;
+    try {
+        modelOutput = JSON.parse(rawJsonStr);
+    } catch (_) {
+        modelOutput = { _parseError: true, _raw: rawJsonStr };
+    }
+    const normalized = normalizeModelOutput(modelOutput) || modelOutput;
+    const rawId = row['__任务原始ID'] || '';
+    const title = row['__视频标题'] || rawId;
+    const durStr = row['__视频时长'];
+    const videoDuration = (durStr !== '' && durStr != null) ? parseInt(durStr) : null;
+    const modelName = row['模型名称'] || '默认';
+    const task = {
+        id: title || rawId,
+        rawId,
+        video_url: safeUpgradeToHttps(row['视频URL'] || ''),
+        video_duration: videoDuration,
+        model_output: normalized,
+        model_outputs: [normalized],
+        model_names: [modelName],
+        reviews: [null],
+        profileReviews: [null],
+        audiovisualReviews: [null]
+    };
+    applyReview(task, 0, buildReviewFromRow(row, mode), mode);
+    return task;
+}
+
+function showConflictModal(conflictCount) {
+    return new Promise((resolve) => {
+        const modal = document.getElementById('result-import-conflict-modal');
+        document.getElementById('conflict-count-text').textContent =
+            `有 ${conflictCount} 条任务已存在评分记录，如何处理？`;
+        modal._resolve = resolve;
+        modal.classList.remove('hidden');
+        modal.classList.add('flex');
+    });
+}
+
+function resolveConflictModal(overwrite) {
+    const modal = document.getElementById('result-import-conflict-modal');
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+    if (modal._resolve) { modal._resolve(overwrite); modal._resolve = null; }
+}
+window.resolveConflictModal = resolveConflictModal;
+
+async function importResultsFromExcel(rows) {
+    if (!rows.length) { alert('文件为空'); return; }
+
+    // 检测模式
+    const cols = Object.keys(rows[0]);
+    let mode;
+    if (cols.includes('时间段切分评分'))  mode = 'segment';
+    else if (cols.includes('叙事类型评分')) mode = 'profile';
+    else if (cols.includes('总体质量评分')) mode = 'audiovisual';
+    else { alert('无法识别评分结果文件的审核模式（缺少必要列）'); return; }
+
+    const existingTasks = mode === 'segment'     ? state.segmentTasks
+                        : mode === 'audiovisual' ? state.audiovisualTasks
+                        : state.profileTasks;
+
+    const toRestore  = []; // { task, groupIndex, reviewData }
+    const conflicts  = []; // { task, groupIndex, reviewData }
+    const toCreate   = []; // rows where no matching task found
+
+    rows.forEach(row => {
+        const videoUrl  = row['视频URL']  || '';
+        const modelName = row['模型名称'] || '';
+        if (!videoUrl) return;
+
+        const urlKey = stripUrlQuery(videoUrl);
+        const task = existingTasks.find(t => stripUrlQuery(t.video_url || '') === urlKey);
+
+        if (!task) { if (row['__模型输出JSON']) toCreate.push(row); return; }
+
+        const groupIndex = (task.model_names || []).findIndex(n => n === modelName);
+        if (groupIndex < 0) { if (row['__模型输出JSON']) toCreate.push(row); return; }
+
+        const reviewData = buildReviewFromRow(row, mode);
+        const existing = mode === 'segment'     ? task.reviews?.[groupIndex]
+                       : mode === 'profile'     ? task.profileReviews?.[groupIndex]
+                       : task.audiovisualReviews?.[groupIndex];
+
+        if (existing?.completed) {
+            conflicts.push({ task, groupIndex, reviewData });
+        } else {
+            toRestore.push({ task, groupIndex, reviewData });
+        }
+    });
+
+    // 处理冲突
+    let overwrite = false;
+    if (conflicts.length > 0) {
+        overwrite = await showConflictModal(conflicts.length);
+    }
+
+    let restoredCount = 0;
+    let skippedCount  = 0;
+    let createdCount  = 0;
+
+    toRestore.forEach(({ task, groupIndex, reviewData }) => {
+        applyReview(task, groupIndex, reviewData, mode);
+        restoredCount++;
+    });
+
+    if (overwrite) {
+        conflicts.forEach(({ task, groupIndex, reviewData }) => {
+            applyReview(task, groupIndex, reviewData, mode);
+            restoredCount++;
+        });
+    } else {
+        skippedCount = conflicts.length;
+    }
+
+    toCreate.forEach(row => {
+        const newTask = buildTaskFromRow(row, mode);
+        if (newTask) { existingTasks.push(newTask); createdCount++; }
+    });
+
+    // 写回 state
+    if      (mode === 'segment')     state.segmentTasks     = existingTasks;
+    else if (mode === 'audiovisual') state.audiovisualTasks = existingTasks;
+    else                             state.profileTasks     = existingTasks;
+
+    saveToLocalStorage();
+    updateUI();
+    closeImportModal();
+
+    const currentTasks = getTasks();
+    if (getTaskIndex() < 0 && currentTasks.length > 0) selectTask(0);
+
+    showEditToast(`已恢复 ${restoredCount} 条评分，新建 ${createdCount} 个任务，跳过 ${skippedCount} 条`);
 }
 
 // 修改 normalizeModelOutput 以支持全篇语义画像数据
