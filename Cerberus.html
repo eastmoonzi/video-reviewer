@@ -4877,13 +4877,13 @@ async function repairExcelAndDownload(file, mode, schema, isCsv = false) {
     // 写回并下载
     updateRepairProgress('生成修复后文件...', 98);
     const newWs = XLSX.utils.aoa_to_sheet(rows);
-    const newWb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(newWb, newWs, sheetName);
     const outName = file.name.replace(/(\.[^.]+)$/, '_fixed$1');
     if (isCsv) {
         const csvContent = XLSX.utils.sheet_to_csv(newWs);
-        downloadBlob(new Blob([csvContent], { type: 'text/csv;charset=utf-8;' }), outName);
+        downloadBlob(new Blob(['﻿' + csvContent], { type: 'text/csv;charset=utf-8;' }), outName);
     } else {
+        const newWb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(newWb, newWs, sheetName);
         XLSX.writeFile(newWb, outName);
     }
 
