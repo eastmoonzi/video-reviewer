@@ -1158,13 +1158,13 @@
                     <label class="block text-sm font-medium text-gray-700 mb-2">选择文件</label>
                 </div>
                 <div id="import-file-section" style="border-radius:8px;transition:border-color 0.15s,background 0.15s;">
-                    <input type="file" id="import-file" accept=".xlsx,.xls,.jsonl" multiple class="hidden" onchange="onImportFileChange(this)">
+                    <input type="file" id="import-file" accept=".xlsx,.xls,.jsonl,.csv" multiple class="hidden" onchange="onImportFileChange(this)">
                     <button onclick="document.getElementById('import-file').click()" class="w-full py-3 px-4 border-2 border-dashed border-gray-300 rounded-lg text-sm text-gray-500 hover:border-blue-400 hover:text-blue-500 transition-colors">
                         <span class="mdi mdi-file-upload-outline mr-1"></span>点击选择或拖拽文件到此（可多次添加不同目录的文件）
                     </button>
                     <div id="import-file-list" class="mt-2 space-y-1"></div>
                     <p class="mt-2 text-xs text-gray-500">
-                        支持格式：Excel (.xlsx/.xls) 或 JSONL (.jsonl)<br>
+                        支持格式：Excel (.xlsx/.xls)、JSONL (.jsonl) 或 CSV (.csv)<br>
                         JSONL 可多次添加不同文件，自动按视频URL合并，每个文件视为一个模型<br>
                         <a href="#" onclick="showFormatHelp()" class="text-blue-500 hover:underline">查看格式说明</a>
                     </p>
@@ -4541,7 +4541,8 @@ function renderPendingFileList() {
     container.innerHTML = files.map((f, i) => {
         const isJsonl = f.name.endsWith('.jsonl');
         const isExcel = f.name.endsWith('.xlsx') || f.name.endsWith('.xls');
-        const icon = isJsonl ? 'mdi-code-braces' : isExcel ? 'mdi-file-excel-outline' : 'mdi-file-outline';
+        const isCsv = f.name.endsWith('.csv');
+        const icon = isJsonl ? 'mdi-code-braces' : isExcel ? 'mdi-file-excel-outline' : isCsv ? 'mdi-file-delimited-outline' : 'mdi-file-outline';
         const sizeKB = (f.size / 1024).toFixed(1);
         return `<div class="flex items-center justify-between px-3 py-1.5 bg-gray-50 rounded text-sm">
             <span class="flex items-center gap-1.5 text-gray-700 truncate">
