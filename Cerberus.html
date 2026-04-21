@@ -336,16 +336,23 @@
         <!-- Brand / Header -->
         <div class="px-6 mb-8 flex items-center justify-between">
             <h1 class="text-xl font-bold tracking-tight text-black opacity-90 whitespace-nowrap">审查台</h1>
-            <div class="flex gap-2">
+            <div class="flex gap-2 items-center">
                 <button onclick="clearAllTasks()" class="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center text-red-500 hover:scale-105 transition-transform" title="清空任务">
                     <span class="mdi mdi-delete-outline text-lg"></span>
                 </button>
-                <button onclick="sortTasksByNid()" class="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center text-gray-600 hover:scale-105 transition-transform" title="按ID排序">
-                    <span class="mdi mdi-sort-numeric-ascending text-lg"></span>
-                </button>
-                <button onclick="exportResults()" class="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center text-green-600 hover:scale-105 transition-transform" title="导出结果">
-                    <span class="mdi mdi-download text-lg"></span>
-                </button>
+                <div class="relative">
+                    <button id="export-menu-btn" onclick="toggleExportMenu()" class="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center text-green-600 hover:scale-105 transition-transform" title="导出">
+                        <span class="mdi mdi-download text-lg"></span>
+                    </button>
+                    <div id="export-menu" class="hidden absolute right-0 top-full mt-1 bg-white rounded-lg shadow-lg border border-gray-100 py-1 z-50 min-w-[160px]">
+                        <div onclick="exportResults(); hideExportMenu();" class="px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 cursor-pointer flex items-center gap-2">
+                            <span class="mdi mdi-download text-green-600"></span>导出结果
+                        </div>
+                        <div onclick="exportEditedJsonl(); hideExportMenu();" class="px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 cursor-pointer flex items-center gap-2">
+                            <span class="mdi mdi-script-text-outline text-purple-500"></span>导出编辑版 JSONL
+                        </div>
+                    </div>
+                </div>
                 <button onclick="importTasks()" class="w-8 h-8 rounded-full bg-white shadow-sm flex items-center justify-center text-blue-600 hover:scale-105 transition-transform" title="导入任务">
                     <span class="mdi mdi-plus text-lg"></span>
                 </button>
@@ -545,6 +552,7 @@
                                 <button onclick="switchTab('text')" class="tab-btn tab-active py-4 text-sm font-semibold text-black border-b-2 border-black" data-tab="text">文本</button>
                                 <button onclick="switchTab('visual')" class="tab-btn py-4 text-sm font-medium text-gray-400 hover:text-gray-600 transition-colors border-b-2 border-transparent" data-tab="visual">视觉</button>
                                 <button onclick="switchTab('keyframe')" class="tab-btn py-4 text-sm font-medium text-gray-400 hover:text-gray-600 transition-colors border-b-2 border-transparent" data-tab="keyframe">关键帧</button>
+                                <button onclick="switchTab('edit')" class="tab-btn py-4 text-sm font-medium text-gray-400 hover:text-gray-600 transition-colors border-b-2 border-transparent" data-tab="edit">编辑</button>
                                 <button onclick="switchTab('raw')" class="tab-btn py-4 text-sm font-medium text-gray-400 hover:text-gray-600 transition-colors border-b-2 border-transparent" data-tab="raw">原文</button>
                                 <div class="ml-auto flex items-center gap-1.5 self-center">
                                     <input type="text" id="time-jump-input" placeholder="跳转 1:30" class="w-[80px] text-xs py-1 px-2 rounded-lg bg-gray-100 border-none outline-none focus:bg-gray-200 font-mono transition-colors" onkeydown="if(event.key==='Enter'){jumpToInputTime(); event.preventDefault();}">
@@ -558,6 +566,7 @@
                                 <div id="tab-text" class="tab-panel"><div id="text-content" class="space-y-6 text-sm leading-relaxed text-gray-600"></div></div>
                                 <div id="tab-visual" class="tab-panel hidden"><div id="visual-content" class="space-y-6 text-sm leading-relaxed text-gray-600"></div></div>
                                 <div id="tab-keyframe" class="tab-panel hidden"><div id="keyframe-content" class="space-y-4"></div></div>
+                                <div id="tab-edit" class="tab-panel hidden"><div id="edit-content"></div></div>
                                 <div id="tab-raw" class="tab-panel hidden"><div id="raw-content" class="space-y-4"></div></div>
                             </div>
                         </div>
@@ -1272,7 +1281,7 @@
 // ============================================
 // 视频审查工作台 - 主应用逻辑
 // build: 2026-03-10a
-const APP_VERSION = '2026-0416a';
+const APP_VERSION = '2026-0421a';
 // ============================================
 console.log('%c[app.js] 脚本已加载 ' + new Date().toLocaleTimeString(), 'color:green;font-weight:bold');
 
@@ -2990,16 +2999,22 @@ function renderTabContent(tabName) {
         return;
     }
     const segments = output.segments || [];
+    // 只读 tab 若存在原始快照则优先显示原始，保证它们作为"原始视图"不被编辑污染
+    const readOnlySegments = output._original_segments || segments;
 
     switch (tabName) {
         case 'text':
-            renderTextUnderstanding(segments);
+            renderTextUnderstanding(readOnlySegments);
             break;
         case 'visual':
-            renderVisualUnderstanding(segments);
+            renderVisualUnderstanding(readOnlySegments);
             break;
         case 'keyframe':
-            renderKeyframeList(segments);
+            renderKeyframeList(readOnlySegments);
+            break;
+        case 'edit':
+            enterEditTab();
+            renderEditTab();
             break;
         case 'raw':
             renderRawContent(output, 'raw-content');
@@ -3153,6 +3168,457 @@ function renderSegments(segments) {
         </div>
     `).join('');
 }
+
+// ============================================
+// 分段详情编辑 (Edit Tab)
+// ============================================
+
+let _editSaveTimer = null;
+let _editLastSavedAt = 0;
+
+function getCurrentEditOutput() {
+    const task = getCurrentTask();
+    if (!task) return null;
+    const gi = state.currentOutputGroup || 0;
+    return task.model_outputs?.[gi] || task.model_output || null;
+}
+
+function enterEditTab() {
+    const out = getCurrentEditOutput();
+    if (!out) return;
+    if (!Array.isArray(out.segments)) out.segments = [];
+    if (!out._original_segments) {
+        out._original_segments = JSON.parse(JSON.stringify(out.segments));
+    }
+}
+
+function debouncedEditSave() {
+    clearTimeout(_editSaveTimer);
+    _editSaveTimer = setTimeout(() => {
+        try { saveToLocalStorage(); } catch (e) { console.error('edit save', e); }
+        _editLastSavedAt = Date.now();
+        updateEditSaveStatus();
+        renderTaskList();
+    }, 400);
+}
+
+function updateEditSaveStatus() {
+    const el = document.getElementById('edit-save-status');
+    if (!el) return;
+    if (!_editLastSavedAt) { el.textContent = ''; return; }
+    const d = new Date(_editLastSavedAt);
+    const pad = n => String(n).padStart(2, '0');
+    el.textContent = `已保存 · ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
+}
+
+function editDiffField(cur, orig) {
+    if (cur === orig) return false;
+    if ((cur == null || cur === '') && (orig == null || orig === '')) return false;
+    if (typeof cur === 'number' && typeof orig === 'number') return Number(cur) !== Number(orig);
+    return JSON.stringify(cur) !== JSON.stringify(orig);
+}
+
+function recomputeEditedFlag(out) {
+    if (!out) return;
+    const a = JSON.stringify(out.segments || []);
+    const b = JSON.stringify(out._original_segments || []);
+    out._edited = (a !== b);
+}
+
+function validateEditSegmentTime(seg, idx) {
+    const warns = [];
+    const out = getCurrentEditOutput();
+    if (!out) return warns;
+    const segs = out.segments || [];
+    const duration = elements?.videoPlayer?.duration;
+    if (Number(seg.end) < Number(seg.start)) warns.push('结束<开始');
+    if (Number(seg.start) < 0) warns.push('开始<0');
+    if (duration && isFinite(duration) && Number(seg.end) > duration + 0.5) warns.push('超出视频');
+    const prev = segs[idx - 1];
+    const next = segs[idx + 1];
+    if (prev && Number(seg.start) < Number(prev.end) - 0.01) warns.push('与前段重叠');
+    if (next && Number(seg.end) > Number(next.start) + 0.01) warns.push('与后段重叠');
+    return warns;
+}
+
+function renderEditTab() {
+    const container = document.getElementById('edit-content');
+    if (!container) return;
+    const out = getCurrentEditOutput();
+    if (!out) {
+        container.innerHTML = '<div class="text-gray-400 text-center py-8">暂无数据</div>';
+        return;
+    }
+    const segs = out.segments || [];
+    const origs = out._original_segments || [];
+
+    const cards = segs.map((seg, i) => renderEditSegmentCard(seg, origs[i], i)).join('');
+    const emptyMsg = '<div class="text-gray-400 text-center py-8">暂无分段，点击下方"添加分段"开始</div>';
+
+    container.innerHTML = `
+        <div class="sticky top-0 z-10 bg-white/95 backdrop-blur py-2 mb-3 border-b border-gray-100 flex flex-wrap items-center gap-2">
+            <button onclick="addEditSegment()" class="px-3 py-1.5 text-xs rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors flex items-center gap-1">
+                <span class="mdi mdi-plus"></span>添加分段
+            </button>
+            <button onclick="resetAllEdits()" class="px-3 py-1.5 text-xs rounded-full bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors flex items-center gap-1">
+                <span class="mdi mdi-restore"></span>全部还原
+            </button>
+            <div class="ml-auto flex items-center gap-3">
+                <span id="edit-save-status" class="text-xs text-gray-400"></span>
+                <button onclick="copyStandardJson()" class="px-3 py-1.5 text-xs rounded-full bg-blue-500 hover:bg-blue-600 text-white transition-colors flex items-center gap-1">
+                    <span class="mdi mdi-content-copy"></span>复制标准 JSON
+                </button>
+            </div>
+        </div>
+        <div class="space-y-4">${cards || emptyMsg}</div>
+    `;
+    updateEditSaveStatus();
+    // 自适应高度
+    container.querySelectorAll('textarea.edit-auto-resize').forEach(editAutoResize);
+}
+
+function renderEditSegmentCard(seg, orig, i) {
+    const isNew = !orig;
+    const timeDiff = !isNew && (Number(seg.start) !== Number(orig.start) || Number(seg.end) !== Number(orig.end));
+    const textDiff = !isNew && editDiffField(seg.description, orig.description);
+    const visDiff = !isNew && editDiffField(seg.visual, orig.visual);
+    const warnings = validateEditSegmentTime(seg, i);
+    const warnClass = warnings.length ? 'border-red-300 bg-red-50/30' : 'border-gray-200';
+    const warnHtml = warnings.length
+        ? `<span class="text-[11px] text-red-500 ml-2">⚠ ${escapeHTML(warnings.join('、'))}</span>`
+        : '';
+
+    const kfOrigs = orig?.keyframes || [];
+    const kfRows = (seg.keyframes || []).map((kf, ki) =>
+        renderEditKeyframe(kf, kfOrigs[ki], i, ki)
+    ).join('');
+
+    const origTimeText = orig ? `${orig.start} → ${orig.end}` : '';
+    const origTextText = orig ? (orig.description || '(空)') : '';
+    const origVisText = orig ? (orig.visual || '(空)') : '';
+
+    return `
+        <div class="p-4 rounded-2xl border ${isNew ? 'border-l-4 border-l-green-400 border-gray-200' : 'border-gray-200'} bg-white">
+            <div class="flex items-center justify-between mb-3">
+                <div class="flex items-center gap-2">
+                    <span class="text-sm font-semibold text-gray-800">片段 ${i + 1}</span>
+                    ${isNew ? `<span class="text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">新增</span>` : ''}
+                </div>
+                <div class="flex items-center gap-1">
+                    <button onclick="moveEditSegment(${i}, -1)" class="w-7 h-7 rounded-full text-gray-400 hover:text-black hover:bg-gray-100 flex items-center justify-center" title="上移"><span class="mdi mdi-arrow-up text-sm"></span></button>
+                    <button onclick="moveEditSegment(${i}, 1)" class="w-7 h-7 rounded-full text-gray-400 hover:text-black hover:bg-gray-100 flex items-center justify-center" title="下移"><span class="mdi mdi-arrow-down text-sm"></span></button>
+                    <button onclick="removeEditSegment(${i})" class="w-7 h-7 rounded-full text-gray-400 hover:text-red-500 hover:bg-red-50 flex items-center justify-center" title="删除"><span class="mdi mdi-delete-outline text-sm"></span></button>
+                </div>
+            </div>
+
+            <div class="flex items-center gap-2 mb-3 ${timeDiff ? 'pl-3 border-l-2 border-amber-300' : ''}">
+                <span class="text-xs text-gray-500 w-10 flex-shrink-0">时间</span>
+                <input type="number" step="0.1" min="0" value="${seg.start}"
+                    oninput="onEditSegField(${i}, 'start', this.value, false)"
+                    onblur="onEditSegField(${i}, 'start', this.value, true)"
+                    class="w-24 px-2 py-1 text-sm font-mono border rounded ${warnClass}">
+                <span class="text-gray-400">→</span>
+                <input type="number" step="0.1" min="0" value="${seg.end}"
+                    oninput="onEditSegField(${i}, 'end', this.value, false)"
+                    onblur="onEditSegField(${i}, 'end', this.value, true)"
+                    class="w-24 px-2 py-1 text-sm font-mono border rounded ${warnClass}">
+                <span class="text-xs text-gray-400">秒</span>
+                ${timeDiff ? `<button onclick="resetEditField(${i}, 'time')" class="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 hover:bg-amber-200" title="原文：${escapeHTML(origTimeText)}">改 · 还原</button>` : ''}
+                ${warnHtml}
+            </div>
+
+            <div class="mb-3 ${textDiff ? 'pl-3 border-l-2 border-amber-300' : ''}">
+                <div class="flex items-center justify-between mb-1">
+                    <label class="text-xs text-gray-500">文本（text）</label>
+                    ${textDiff ? `<button onclick="resetEditField(${i}, 'text')" class="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 hover:bg-amber-200 instant-tip" data-tip="原文：${escapeHTML(origTextText)}">改 · 还原</button>` : ''}
+                </div>
+                <textarea rows="2"
+                    oninput="editAutoResize(this); onEditSegField(${i}, 'description', this.value, false)"
+                    onblur="onEditSegField(${i}, 'description', this.value, true)"
+                    class="edit-auto-resize w-full px-3 py-2 text-[14px] leading-relaxed border border-gray-200 rounded-lg focus:outline-none focus:border-blue-400 resize-none">${escapeHTML(seg.description || '')}</textarea>
+            </div>
+
+            <div class="mb-3 ${visDiff ? 'pl-3 border-l-2 border-amber-300' : ''}">
+                <div class="flex items-center justify-between mb-1">
+                    <label class="text-xs text-gray-500">视觉（vis）</label>
+                    ${visDiff ? `<button onclick="resetEditField(${i}, 'vis')" class="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 hover:bg-amber-200 instant-tip" data-tip="原文：${escapeHTML(origVisText)}">改 · 还原</button>` : ''}
+                </div>
+                <textarea rows="2"
+                    oninput="editAutoResize(this); onEditSegField(${i}, 'visual', this.value, false)"
+                    onblur="onEditSegField(${i}, 'visual', this.value, true)"
+                    class="edit-auto-resize w-full px-3 py-2 text-[14px] leading-relaxed border border-gray-200 rounded-lg focus:outline-none focus:border-blue-400 resize-none">${escapeHTML(seg.visual || '')}</textarea>
+            </div>
+
+            <div class="mt-3">
+                <div class="flex items-center justify-between mb-2">
+                    <span class="text-xs text-gray-500">关键帧（key_frame）</span>
+                    <button onclick="addEditKeyframe(${i})" class="text-xs text-blue-500 hover:text-blue-700 flex items-center gap-0.5">
+                        <span class="mdi mdi-plus text-xs"></span>添加
+                    </button>
+                </div>
+                <div class="space-y-2">${kfRows || '<div class="text-xs text-gray-300 italic">暂无关键帧</div>'}</div>
+            </div>
+        </div>
+    `;
+}
+
+function renderEditKeyframe(kf, origKf, segIdx, kfIdx) {
+    const isNew = !origKf;
+    const timeDiff = !isNew && Number(kf.time) !== Number(origKf.time);
+    const labelDiff = !isNew && editDiffField(kf.label, origKf.label);
+    const reasonDiff = !isNew && editDiffField(kf.reason, origKf.reason);
+    const anyDiff = isNew || timeDiff || labelDiff || reasonDiff;
+
+    return `
+        <div class="p-2 rounded-lg bg-gray-50 ${anyDiff ? 'border-l-2 border-amber-300 pl-3' : ''}">
+            <div class="flex items-center gap-2 mb-1">
+                <input type="number" step="0.1" min="0" value="${kf.time}"
+                    oninput="onEditKfField(${segIdx}, ${kfIdx}, 'time', this.value, false)"
+                    onblur="onEditKfField(${segIdx}, ${kfIdx}, 'time', this.value, true)"
+                    class="w-20 px-2 py-0.5 text-xs font-mono border border-gray-200 rounded">
+                <span class="text-[11px] text-gray-400">秒</span>
+                ${isNew ? `<span class="text-[10px] px-1 rounded bg-green-100 text-green-700">新增</span>` : ''}
+                <button onclick="event.stopPropagation(); seekToTime(${kf.time})" class="text-[11px] text-blue-500 hover:text-blue-700" title="跳转到此时间">▶</button>
+                <button onclick="removeEditKeyframe(${segIdx}, ${kfIdx})" class="ml-auto w-6 h-6 rounded-full text-gray-400 hover:text-red-500 hover:bg-red-50 flex items-center justify-center" title="删除">
+                    <span class="mdi mdi-close text-xs"></span>
+                </button>
+            </div>
+            <input type="text" placeholder="描述 (desc)" value="${escapeHTML(kf.label || '')}"
+                oninput="onEditKfField(${segIdx}, ${kfIdx}, 'label', this.value, false)"
+                onblur="onEditKfField(${segIdx}, ${kfIdx}, 'label', this.value, true)"
+                class="w-full px-2 py-1 text-xs border border-gray-200 rounded mb-1 focus:outline-none focus:border-blue-400">
+            <input type="text" placeholder="理由 (reason)" value="${escapeHTML(kf.reason || '')}"
+                oninput="onEditKfField(${segIdx}, ${kfIdx}, 'reason', this.value, false)"
+                onblur="onEditKfField(${segIdx}, ${kfIdx}, 'reason', this.value, true)"
+                class="w-full px-2 py-1 text-xs border border-gray-200 rounded focus:outline-none focus:border-blue-400">
+        </div>
+    `;
+}
+
+function editAutoResize(textarea) {
+    if (!textarea) return;
+    textarea.style.height = 'auto';
+    textarea.style.height = (textarea.scrollHeight + 2) + 'px';
+}
+
+// onBlur=true 时触发 UI 重渲染（更新 diff 标/校验），input 阶段只更新数据+debounce 保存
+function onEditSegField(segIdx, field, value, rerender) {
+    const out = getCurrentEditOutput();
+    const seg = out?.segments?.[segIdx];
+    if (!seg) return;
+    if (field === 'start' || field === 'end') {
+        seg[field] = parseFloat(value) || 0;
+    } else {
+        seg[field] = value;
+    }
+    recomputeEditedFlag(out);
+    debouncedEditSave();
+    if (rerender) {
+        renderEditTab();
+        renderTimeline();
+    }
+}
+
+function onEditKfField(segIdx, kfIdx, field, value, rerender) {
+    const out = getCurrentEditOutput();
+    const kf = out?.segments?.[segIdx]?.keyframes?.[kfIdx];
+    if (!kf) return;
+    if (field === 'time') {
+        kf.time = parseFloat(value) || 0;
+    } else {
+        kf[field] = value;
+    }
+    recomputeEditedFlag(out);
+    debouncedEditSave();
+    if (rerender) renderEditTab();
+}
+
+function addEditSegment() {
+    const out = getCurrentEditOutput();
+    if (!out) return;
+    if (!Array.isArray(out.segments)) out.segments = [];
+    const last = out.segments[out.segments.length - 1];
+    const start = last ? Number(last.end) || 0 : 0;
+    out.segments.push({
+        start,
+        end: start + 5,
+        label: `片段 ${out.segments.length + 1}`,
+        description: '',
+        visual: '',
+        keyframes: []
+    });
+    recomputeEditedFlag(out);
+    debouncedEditSave();
+    renderEditTab();
+    renderTimeline();
+}
+
+function removeEditSegment(segIdx) {
+    if (!confirm('删除这个分段？')) return;
+    const out = getCurrentEditOutput();
+    if (!out?.segments) return;
+    out.segments.splice(segIdx, 1);
+    recomputeEditedFlag(out);
+    debouncedEditSave();
+    renderEditTab();
+    renderTimeline();
+}
+
+function moveEditSegment(segIdx, dir) {
+    const out = getCurrentEditOutput();
+    if (!out?.segments) return;
+    const target = segIdx + dir;
+    if (target < 0 || target >= out.segments.length) return;
+    const tmp = out.segments[segIdx];
+    out.segments[segIdx] = out.segments[target];
+    out.segments[target] = tmp;
+    recomputeEditedFlag(out);
+    debouncedEditSave();
+    renderEditTab();
+    renderTimeline();
+}
+
+function addEditKeyframe(segIdx) {
+    const out = getCurrentEditOutput();
+    const seg = out?.segments?.[segIdx];
+    if (!seg) return;
+    if (!Array.isArray(seg.keyframes)) seg.keyframes = [];
+    const t = ((Number(seg.start) || 0) + (Number(seg.end) || 0)) / 2;
+    seg.keyframes.push({ time: Math.round(t * 10) / 10, label: '', reason: '' });
+    recomputeEditedFlag(out);
+    debouncedEditSave();
+    renderEditTab();
+}
+
+function removeEditKeyframe(segIdx, kfIdx) {
+    const out = getCurrentEditOutput();
+    const seg = out?.segments?.[segIdx];
+    if (!seg?.keyframes) return;
+    seg.keyframes.splice(kfIdx, 1);
+    recomputeEditedFlag(out);
+    debouncedEditSave();
+    renderEditTab();
+}
+
+function resetEditField(segIdx, field) {
+    const out = getCurrentEditOutput();
+    const seg = out?.segments?.[segIdx];
+    const orig = out?._original_segments?.[segIdx];
+    if (!seg || !orig) return;
+    if (field === 'time') {
+        seg.start = orig.start;
+        seg.end = orig.end;
+    } else if (field === 'text') {
+        seg.description = orig.description;
+    } else if (field === 'vis') {
+        seg.visual = orig.visual;
+    }
+    recomputeEditedFlag(out);
+    debouncedEditSave();
+    renderEditTab();
+    renderTimeline();
+}
+
+function resetAllEdits() {
+    const out = getCurrentEditOutput();
+    if (!out?._original_segments) { alert('暂无原始快照'); return; }
+    if (!confirm('丢弃所有编辑，还原为原始版本？')) return;
+    out.segments = JSON.parse(JSON.stringify(out._original_segments));
+    out._edited = false;
+    debouncedEditSave();
+    renderEditTab();
+    renderTimeline();
+}
+
+function serializeToSegmentDetail(segments) {
+    return {
+        segment_detail: (segments || []).map(seg => ({
+            time: [Number(seg.start) || 0, Number(seg.end) || 0],
+            text: seg.description || '',
+            vis: seg.visual || '',
+            key_frame: (seg.keyframes || []).map(kf => ({
+                time: Number(kf.time) || 0,
+                desc: kf.label || '',
+                reason: kf.reason || ''
+            }))
+        }))
+    };
+}
+
+function copyStandardJson() {
+    const out = getCurrentEditOutput();
+    if (!out?.segments) { alert('暂无数据'); return; }
+    const json = JSON.stringify(serializeToSegmentDetail(out.segments), null, 2);
+    const done = () => showEditToast('已复制标准 JSON');
+    if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(json).then(done).catch(() => fallbackCopy(json, done));
+    } else {
+        fallbackCopy(json, done);
+    }
+}
+
+function fallbackCopy(text, onDone) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;top:-1000px;left:0;';
+    document.body.appendChild(ta);
+    ta.select();
+    try { document.execCommand('copy'); onDone(); }
+    catch (e) { alert('复制失败，请手动选择：\n' + text.slice(0, 500)); }
+    document.body.removeChild(ta);
+}
+
+function showEditToast(msg) {
+    let toast = document.getElementById('edit-toast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'edit-toast';
+        toast.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.85);color:white;padding:8px 16px;border-radius:999px;font-size:13px;z-index:9999;transition:opacity 0.3s;pointer-events:none;';
+        document.body.appendChild(toast);
+    }
+    toast.textContent = msg;
+    toast.style.opacity = '1';
+    clearTimeout(toast._timer);
+    toast._timer = setTimeout(() => { toast.style.opacity = '0'; }, 1800);
+}
+
+function exportEditedJsonl() {
+    const tasks = getTasks();
+    if (!tasks?.length) { alert('暂无任务'); return; }
+    const lines = [];
+    tasks.forEach(task => {
+        (task.model_outputs || []).forEach(out => {
+            if (!out || out._parseError || !Array.isArray(out.segments)) return;
+            lines.push(JSON.stringify(serializeToSegmentDetail(out.segments)));
+        });
+    });
+    if (!lines.length) { alert('暂无可导出的分段数据'); return; }
+    const blob = new Blob([lines.join('\n') + '\n'], { type: 'application/jsonl' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `segment_detail-${new Date().toISOString().slice(0, 10)}.jsonl`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showEditToast(`已导出 ${lines.length} 条`);
+}
+
+window.addEditSegment = addEditSegment;
+window.removeEditSegment = removeEditSegment;
+window.moveEditSegment = moveEditSegment;
+window.addEditKeyframe = addEditKeyframe;
+window.removeEditKeyframe = removeEditKeyframe;
+window.onEditSegField = onEditSegField;
+window.onEditKfField = onEditKfField;
+window.resetEditField = resetEditField;
+window.resetAllEdits = resetAllEdits;
+window.copyStandardJson = copyStandardJson;
+window.exportEditedJsonl = exportEditedJsonl;
+window.editAutoResize = editAutoResize;
+window.renderEditTab = renderEditTab;
+window.enterEditTab = enterEditTab;
 
 function renderJSON(containerId, data) {
     const container = document.getElementById(containerId);
@@ -3805,7 +4271,21 @@ document.addEventListener('click', function(e) {
     if (dropdown && !dropdown.classList.contains('hidden') && !dropdown.contains(e.target) && e.target !== btn && !btn.contains(e.target)) {
         dropdown.classList.add('hidden');
     }
+    const exportMenu = document.getElementById('export-menu');
+    const exportBtn = document.getElementById('export-menu-btn');
+    if (exportMenu && !exportMenu.classList.contains('hidden') && !exportMenu.contains(e.target) && exportBtn && !exportBtn.contains(e.target)) {
+        exportMenu.classList.add('hidden');
+    }
 });
+
+function toggleExportMenu() {
+    document.getElementById('export-menu').classList.toggle('hidden');
+}
+function hideExportMenu() {
+    document.getElementById('export-menu').classList.add('hidden');
+}
+window.toggleExportMenu = toggleExportMenu;
+window.hideExportMenu = hideExportMenu;
 
 // 内容搜索：匹配模型输出
 function taskContentMatches(task, q) {
@@ -3942,6 +4422,7 @@ function renderTaskList() {
 
         const displayName = task.id || task.rawId || ('任务 ' + (index + 1));
         const hasParseError = task.model_outputs?.some(o => o?._parseError);
+        const hasEdited = task.model_outputs?.some(o => o?._edited);
 
         return `
             <div class="task-item p-3 border-b cursor-pointer ${isActive ? 'active' : ''}"
@@ -3953,6 +4434,7 @@ function renderTaskList() {
                         <span class="text-sm font-medium truncate max-w-[150px] instant-tip" data-tip="${escapeHTML(displayName)}">${escapeHTML(displayName)}</span>
                     </div>
                     <div class="flex items-center gap-1">
+                        ${hasEdited ? `<span class="w-1.5 h-1.5 rounded-full bg-blue-400 inline-block" title="已编辑"></span>` : ''}
                         ${hasParseError ? `<span class="mdi mdi-alert text-amber-400 text-sm" title="部分模型输出 JSON 解析失败"></span>` : ''}
                         ${isComplete ? `<span class="text-xs text-yellow-500"><span class="mdi mdi-star"></span> ${avgRating}</span>` : ''}
                     </div>
@@ -5048,6 +5530,28 @@ function pythonDictToJson(s) {
     return out.join('');
 }
 
+// 修复 JSON 字符串值内的未转义双引号（模型常见：值内直接写 "文字" 而非 \"文字\"）
+// 状态机逐字符扫描：遇到 " 后向前看，若下一个非空白字符是结构符 ,}]: 则为闭合引号，否则转义
+function repairInnerQuotes(s) {
+    let out = '', inStr = false;
+    for (let i = 0; i < s.length; i++) {
+        const c = s[i];
+        if (inStr) {
+            if (c === '\\') { out += c + (s[++i] || ''); continue; }
+            if (c === '"') {
+                // 向前跳过空白，判断下一个有意义字符
+                let j = i + 1; while (j < s.length && ' \t\r\n'.includes(s[j])) j++;
+                if (j >= s.length || ',}]:'.includes(s[j])) { inStr = false; out += '"'; }
+                else out += '\\"';  // 字符串内部引号 → 转义
+            } else { out += c; }
+        } else {
+            if (c === '"') { inStr = true; }
+            out += c;
+        }
+    }
+    return out;
+}
+
 function quickParseJson(str, debug) {
     if (!str || !str.trim()) return null;
     str = str.trim();
@@ -5062,6 +5566,24 @@ function quickParseJson(str, debug) {
             }
         } catch (e) {
             if (_log) _log.push({ step: label, error: e.message });
+        }
+    }
+
+    // 0. 管道分隔格式：Excel 多分段拼接为 {…} | {…} | {…}
+    {
+        const trimmed = str.trim();
+        if (trimmed.startsWith('{') && /\}\s*\|\s*\{/.test(trimmed)) {
+            try {
+                const parts = trimmed.split(/\}\s*\|\s*\{/);
+                const segments = parts.map((p, i) => {
+                    const fixed = (i === 0 ? '' : '{') + p + (i === parts.length - 1 ? '' : '}');
+                    return JSON.parse(fixed);
+                });
+                if (segments.length > 0 && segments.every(s => s && typeof s === 'object')) {
+                    if (_log) console.log('[quickParseJson] 成功于: 0-pipe-separated | 共尝试 0 级');
+                    return segments;  // 返回数组，normalizeModelOutput 会处理
+                }
+            } catch (_) { /* 回退到正常解析 */ }
         }
     }
 
@@ -5139,8 +5661,26 @@ function quickParseJson(str, debug) {
         str = buf.join('');
     }
 
+    // 5.6 花括号平衡裁剪：取第一个完整 {…} 块，丢弃尾部杂文（模型常见：JSON 后附推理痕迹等）
+    if (str[0] === '{') {
+        let depth = 0;
+        for (let i = 0; i < str.length; i++) {
+            if (str[i] === '{') depth++;
+            else if (str[i] === '}') {
+                depth--;
+                if (depth === 0) {
+                    if (i + 1 < str.length) str = str.slice(0, i + 1);
+                    break;
+                }
+            }
+        }
+    }
+
     // 6. 直接 JSON.parse
     try { return JSON.parse(str); } catch (e) { if (_log) _log.push({ step: '6-direct', error: e.message }); }
+
+    // 6.1 修复字符串值内未转义的双引号（模型常见：值内写 "文字" 而非 \"文字\"）
+    try { return JSON.parse(repairInnerQuotes(str)); } catch (e) { if (_log) _log.push({ step: '6.1-inner-quotes', error: e.message }); }
 
     // 6.3 修复多余逗号（LLM 常见：连续逗号、对象/数组/末尾的逗号）
     try {
@@ -7432,6 +7972,18 @@ const originalNormalizeModelOutput = normalizeModelOutput;
 normalizeModelOutput = function(data) {
     const output = {};
 
+    // 裸分段对象：{time:[0,18], text:"...", vis:"...", key_frame:[...]}
+    // 不在 segment_detail/segment_output 中包裹，直接以单对象形式出现
+    // 检测到后自动包裹为数组再走正常归一化
+    if (!Array.isArray(data) && typeof data === 'object' && data !== null
+        && !data.segment_detail && !data.segment_output && !data.segments
+        && !data.global_profile && !data.narrative_type && !data.visual_type
+        && !data.vision_quality && !data.audiovisual_integration && !data.visual_integration
+        && !data.content_subject && !data.audiovisual
+        && data.time !== undefined && (data.text !== undefined || data.vis !== undefined)) {
+        data = [data];
+    }
+
     // 处理分段语义详情
     if (Array.isArray(data)) {
         // 解包 [{segment_detail: [...]}] 格式
@@ -7525,35 +8077,6 @@ normalizeModelOutput = function(data) {
     
     return output;
 };
-
-// ============================================
-// 按 nid/id 排序
-// ============================================
-function sortTasksByNid() {
-    const tasks = getTasks();
-    if (tasks.length === 0) return;
-
-    // 提取数字部分用于排序，支持纯数字或 "task-1" 等格式
-    const extractNum = (id) => {
-        if (!id) return Infinity;
-        const match = String(id).match(/(\d+)/);
-        return match ? parseInt(match[1], 10) : Infinity;
-    };
-
-    tasks.sort((a, b) => extractNum(a.rawId || a.id) - extractNum(b.rawId || b.id));
-
-    // 重置选中索引到第一个未完成的任务
-    const isComplete = (t) => state.reviewMode === 'segment' ? t.review?.completed
-        : state.reviewMode === 'audiovisual' ? t.audiovisualReview?.completed
-        : t.profileReview?.completed;
-    const firstIncomplete = tasks.findIndex(t => !isComplete(t));
-    setTaskIndex(firstIncomplete >= 0 ? firstIncomplete : 0);
-
-    saveToLocalStorage();
-    updateUI();
-    selectTask(getTaskIndex());
-}
-window.sortTasksByNid = sortTasksByNid;
 
 // 暴露全局函数
 window.switchReviewMode = switchReviewMode;
