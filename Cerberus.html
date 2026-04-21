@@ -4977,20 +4977,35 @@ function confirmImport() {
     // 检查文件类型一致性
     const jsonlFiles = files.filter(f => f.name.endsWith('.jsonl'));
     const excelFiles = files.filter(f => f.name.endsWith('.xlsx') || f.name.endsWith('.xls'));
-    const otherFiles = files.filter(f => !f.name.endsWith('.jsonl') && !f.name.endsWith('.xlsx') && !f.name.endsWith('.xls'));
+    const csvFiles  = files.filter(f => f.name.endsWith('.csv'));
+    const otherFiles = files.filter(f =>
+        !f.name.endsWith('.jsonl') &&
+        !f.name.endsWith('.xlsx') && !f.name.endsWith('.xls') &&
+        !f.name.endsWith('.csv')
+    );
 
     if (otherFiles.length > 0) {
-        alert('请选择 Excel (.xlsx/.xls) 或 JSONL (.jsonl) 格式文件');
+        alert('请选择 Excel (.xlsx/.xls)、JSONL (.jsonl) 或 CSV (.csv) 格式文件');
         return;
     }
 
-    if (jsonlFiles.length > 0 && excelFiles.length > 0) {
-        alert('不支持同时导入 Excel 和 JSONL 文件，请分开导入');
+    if (jsonlFiles.length > 0 && (excelFiles.length > 0 || csvFiles.length > 0)) {
+        alert('不支持同时导入 JSONL 与表格文件，请分开导入');
+        return;
+    }
+
+    if (excelFiles.length > 0 && csvFiles.length > 0) {
+        alert('不支持同时导入 Excel 和 CSV 文件，请分开导入');
         return;
     }
 
     if (excelFiles.length > 1) {
         alert('Excel 文件只能选择一个');
+        return;
+    }
+
+    if (csvFiles.length > 1) {
+        alert('CSV 文件只能选择一个');
         return;
     }
 
@@ -5007,6 +5022,22 @@ function confirmImport() {
             }
         };
         reader.readAsArrayBuffer(excelFiles[0]);
+        return;
+    }
+
+    // 单个 CSV 文件导入
+    if (csvFiles.length === 1) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            try {
+                const data = parseCsv(e.target.result);
+                processImportData(data);
+            } catch (err) {
+                alert('文件解析失败: ' + err.message);
+                console.error('解析错误:', err);
+            }
+        };
+        reader.readAsText(csvFiles[0], 'UTF-8');
         return;
     }
 
