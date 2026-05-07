@@ -1294,7 +1294,7 @@
 // ============================================
 // 视频审查工作台 - 主应用逻辑
 // build: 2026-03-10a
-const APP_VERSION = '2026-0421c';
+const APP_VERSION = '2026-0507a';
 // ============================================
 console.log('%c[app.js] 脚本已加载 ' + new Date().toLocaleTimeString(), 'color:green;font-weight:bold');
 
@@ -3056,6 +3056,15 @@ function renderRawContent(output, containerId) {
                <span class="text-sm font-semibold text-gray-600">原始文本：</span>
            </div>`;
 
+    const thinkBlock = output._think ? `
+        <div class="mb-4 p-4 rounded-2xl border border-blue-100 bg-blue-50/70">
+            <div class="flex items-center gap-2 mb-3">
+                <span class="mdi mdi-brain text-blue-500 text-lg"></span>
+                <span class="text-sm font-semibold text-blue-800">Think 推导内容：</span>
+            </div>
+            <pre class="text-xs text-blue-900 bg-white/80 border border-blue-100 rounded-xl p-3 overflow-auto max-h-[36vh] whitespace-pre-wrap break-all">${escapeHTML(output._think)}</pre>
+        </div>` : '';
+
     const taskIndex = getTaskIndex();
     const groupIndex = state.currentOutputGroup;
     const repairBtn = `<button id="repair-single-btn-${taskIndex}-${groupIndex}"
@@ -3065,6 +3074,7 @@ function renderRawContent(output, containerId) {
     </button>`;
 
     container.innerHTML = `
+        ${thinkBlock}
         <div class="${wrapClass}">
             ${header}
             <pre class="text-xs text-gray-700 bg-white border border-gray-100 rounded-xl p-3 overflow-auto max-h-[60vh] whitespace-pre-wrap break-all">${escapeHTML(rawStr)}</pre>
@@ -5178,19 +5188,44 @@ function safeUpgradeToHttps(url) {
     return url.replace(/^http:\/\//i, 'https://');
 }
 
+function getAssistantMessageContent(obj) {
+    if (!Array.isArray(obj.messages)) return undefined;
+    const assistant = obj.messages.find(m => m.role === 'assistant');
+    if (!assistant) return undefined;
+    if (typeof assistant.content === 'string') return assistant.content;
+    if (Array.isArray(assistant.content)) {
+        return assistant.content.find(c => c.type === 'text')?.text;
+    }
+    return undefined;
+}
+
+function extractThinkContent(str) {
+    if (typeof str !== 'string') return '';
+    const patterns = [
+        new RegExp('<think[^>]*>([\\s\\S]*?)</think>', 'i'),
+        new RegExp('<thinking[^>]*>([\\s\\S]*?)</thinking>', 'i'),
+        new RegExp('<reasoning[^>]*>([\\s\\S]*?)</reasoning>', 'i')
+    ];
+    for (const pattern of patterns) {
+        const match = str.match(pattern);
+        if (match) return match[1].trim();
+    }
+    return '';
+}
+
+function attachThinkContent(output, thinkText) {
+    if (thinkText) output._think = thinkText;
+    return output;
+}
+
 // 统一提取原始文本，在解析之前调用
 function extractRawText(obj) {
     const rawParts = [];
 
     // 1. response 原文（可能来自 obj.response 或 obj.messages）
     let responseStr = obj.response;
-    if (responseStr === undefined && Array.isArray(obj.messages)) {
-        const assistant = obj.messages.find(m => m.role === 'assistant');
-        if (assistant) {
-            responseStr = typeof assistant.content === 'string'
-                ? assistant.content
-                : assistant.content?.find(c => c.type === 'text')?.text;
-        }
+    if (responseStr === undefined) {
+        responseStr = getAssistantMessageContent(obj);
     }
     if (typeof responseStr === 'string' && responseStr.trim()) {
         rawParts.push(responseStr.trim());
@@ -5221,22 +5256,15 @@ function convertJsonlToTask(obj, index) {
     };
 
     const rawText = extractRawText(obj);
+    const assistantContent = getAssistantMessageContent(obj);
+    const thinkText = extractThinkContent(assistantContent);
 
     // 处理 response 字段
     let response = obj.response;
 
     // 兼容 messages 格式（OpenAI chat 格式）：从 assistant 消息中提取 response
-    if (response === undefined && Array.isArray(obj.messages)) {
-        const assistantMsg = obj.messages.find(m => m.role === 'assistant');
-        if (assistantMsg) {
-            // content 可能是字符串或数组
-            if (typeof assistantMsg.content === 'string') {
-                response = assistantMsg.content;
-            } else if (Array.isArray(assistantMsg.content)) {
-                const textPart = assistantMsg.content.find(c => c.type === 'text');
-                if (textPart) response = textPart.text;
-            }
-        }
+    if (response === undefined) {
+        response = assistantContent;
     }
 
     if (typeof response === 'string') {
@@ -5257,7 +5285,7 @@ function convertJsonlToTask(obj, index) {
     if (!response) {
         if (rawText.trim()) {
             // 有原始内容但解析失败 → _parseError，供 LLM 修复
-            const errorOutput = { _parseError: true, _raw: rawText };
+            const errorOutput = attachThinkContent({ _parseError: true, _raw: rawText }, thinkText);
             task.model_output = errorOutput;
             task.model_outputs = [errorOutput];
             task.model_names = [obj.model_name || '默认'];
@@ -5265,8 +5293,9 @@ function convertJsonlToTask(obj, index) {
             return task;
         }
         // 真正什么都没有 → 空任务（只有视频）
-        task.model_output = { segments: [], _raw: rawText };
-        task.model_outputs = [{ segments: [], _raw: rawText }];
+        const emptyOutput = attachThinkContent({ segments: [], _raw: rawText }, thinkText);
+        task.model_output = emptyOutput;
+        task.model_outputs = [emptyOutput];
         task.model_names = [obj.model_name || '默认'];
         task.reviews = [null];
         return task;
@@ -5283,7 +5312,7 @@ function convertJsonlToTask(obj, index) {
     }
     // 检测是否为基础音画质量格式
     if (response.vision_quality || response.audiovisual_integration || response.visual_integration || response.content_subject) {
-        const avOutput = { audiovisual: response, _raw: rawText };
+        const avOutput = attachThinkContent({ audiovisual: response, _raw: rawText }, thinkText);
         task.model_output = avOutput;
         task.model_outputs = [avOutput];
         task.model_names = [obj.model_name || '默认'];
@@ -5407,7 +5436,7 @@ function convertJsonlToTask(obj, index) {
         };
     });
 
-    const output = { segments, _raw: rawText };
+    const output = attachThinkContent({ segments, _raw: rawText }, thinkText);
     // 如果同时包含画像数据（多代码块合并），一并存入
     if (profileData) {
         const gp = profileData.global_profile || profileData;
