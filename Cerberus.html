@@ -1167,7 +1167,7 @@
                     <p class="mt-2 text-xs text-gray-500">
                         支持格式：Excel (.xlsx/.xls)、JSONL (.jsonl) 或 CSV (.csv)<br>
                         JSONL 可多次添加不同文件，自动按视频URL合并，每个文件视为一个模型<br>
-                        <a href="#" onclick="showFormatHelp()" class="text-blue-500 hover:underline">查看格式说明</a>
+                        <a href="https://ku.baidu-int.com/knowledge/HFVrC7hq1Q/pKzJfZczuc/eSUzhRjlC9/brU8mPglEHsDrC" target="_blank" rel="noopener" class="text-blue-500 hover:underline">查看格式说明</a>
                     </p>
                 </div>
             </div>
@@ -1203,8 +1203,6 @@
             </div>
         </div>
     </div>
-
-    <!-- 帮助模态框 -->
 
     <!-- LLM 设置面板 -->
     <div id="settings-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
@@ -1260,14 +1258,9 @@
     <script>
 // ============================================
 // 视频审查工作台 - 主应用逻辑
-// build: 2026-03-10a
-const APP_VERSION = '2026-0508b';
+const APP_VERSION = '2026-0508c';
 // ============================================
 console.log('%c[app.js] 脚本已加载 ' + new Date().toLocaleTimeString(), 'color:green;font-weight:bold');
-document.addEventListener('DOMContentLoaded', () => {
-    const badge = document.getElementById('version-badge');
-    if (badge) badge.textContent = APP_VERSION;
-});
 
 // ============================================
 // 全局错误兜底：捕获未处理异常，在 UI 顶部显示错误条
@@ -1852,6 +1845,8 @@ const elements = {
 document.addEventListener('DOMContentLoaded', async () => {
     console.log('初始化开始...');
     initElements();
+    const vBadge = document.getElementById('version-badge');
+    if (vBadge) vBadge.textContent = APP_VERSION;
     console.log('视频播放器元素:', elements.videoPlayer);
     initEventListeners();
     migrateToWorkspaces();
@@ -6801,12 +6796,6 @@ async function loadAllWorkspaceData() {
     }, 150);
 }
 
-// ============================================
-// 帮助
-// ============================================
-function showFormatHelp() {
-    // no-op: help modal removed
-}
 
 // ============================================
 // 侧边栏折叠
