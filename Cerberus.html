@@ -3056,15 +3056,6 @@ function renderRawContent(output, containerId) {
                <span class="text-sm font-semibold text-gray-600">原始文本：</span>
            </div>`;
 
-    const thinkBlock = output._think ? `
-        <div class="mb-4 p-4 rounded-2xl border border-blue-100 bg-blue-50/70">
-            <div class="flex items-center gap-2 mb-3">
-                <span class="mdi mdi-brain text-blue-500 text-lg"></span>
-                <span class="text-sm font-semibold text-blue-800">Think 推导内容：</span>
-            </div>
-            <pre class="text-xs text-blue-900 bg-white/80 border border-blue-100 rounded-xl p-3 overflow-auto max-h-[36vh] whitespace-pre-wrap break-all">${escapeHTML(output._think)}</pre>
-        </div>` : '';
-
     const taskIndex = getTaskIndex();
     const groupIndex = state.currentOutputGroup;
     const repairBtn = `<button id="repair-single-btn-${taskIndex}-${groupIndex}"
@@ -3074,7 +3065,6 @@ function renderRawContent(output, containerId) {
     </button>`;
 
     container.innerHTML = `
-        ${thinkBlock}
         <div class="${wrapClass}">
             ${header}
             <pre class="text-xs text-gray-700 bg-white border border-gray-100 rounded-xl p-3 overflow-auto max-h-[60vh] whitespace-pre-wrap break-all">${escapeHTML(rawStr)}</pre>
@@ -3213,6 +3203,9 @@ function enterEditTab() {
     if (!out._original_segments) {
         out._original_segments = JSON.parse(JSON.stringify(out.segments));
     }
+    if (out._original_think === undefined) {
+        out._original_think = out._think || '';
+    }
 }
 
 function debouncedEditSave() {
@@ -3243,9 +3236,9 @@ function editDiffField(cur, orig) {
 
 function recomputeEditedFlag(out) {
     if (!out) return;
-    const a = JSON.stringify(out.segments || []);
-    const b = JSON.stringify(out._original_segments || []);
-    out._edited = (a !== b);
+    const segmentsChanged = JSON.stringify(out.segments || []) !== JSON.stringify(out._original_segments || []);
+    const thinkChanged = (out._think || '') !== (out._original_think || '');
+    out._edited = segmentsChanged || thinkChanged;
 }
 
 function validateEditSegmentTime(seg, idx) {
@@ -3293,7 +3286,10 @@ function renderEditTab() {
                 </button>
             </div>
         </div>
-        <div class="space-y-4">${cards || emptyMsg}</div>
+        <div class="space-y-4">
+            ${cards || emptyMsg}
+            ${renderEditThinkBlock(out)}
+        </div>
     `;
     updateEditSaveStatus();
     // 自适应高度
@@ -3385,6 +3381,30 @@ function renderEditSegmentCard(seg, orig, i) {
     `;
 }
 
+function renderEditThinkBlock(out) {
+    const think = out?._think || '';
+    const origThink = out?._original_think || '';
+    const thinkDiff = editDiffField(think, origThink);
+    const origThinkText = origThink || '(空)';
+
+    return `
+        <div class="p-4 rounded-2xl border border-gray-200 bg-white ${thinkDiff ? 'border-l-4 border-l-amber-300' : ''}">
+            <div class="flex items-center justify-between mb-2">
+                <div class="flex items-center gap-2">
+                    <span class="mdi mdi-brain text-blue-500"></span>
+                    <span class="text-sm font-semibold text-gray-800">Think（think）</span>
+                    <span class="text-[11px] text-gray-400">全局字段，不按分段切分</span>
+                </div>
+                ${thinkDiff ? `<button onclick="resetEditThink()" class="text-[10px] px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-700 hover:bg-amber-200 instant-tip" data-tip="原文：${escapeHTML(origThinkText)}">改 · 还原</button>` : ''}
+            </div>
+            <textarea rows="4"
+                oninput="editAutoResize(this); onEditThinkField(this.value, false)"
+                onblur="onEditThinkField(this.value, true)"
+                class="edit-auto-resize w-full px-3 py-2 text-[14px] leading-relaxed border border-gray-200 rounded-lg focus:outline-none focus:border-blue-400 resize-none">${escapeHTML(think)}</textarea>
+        </div>
+    `;
+}
+
 function renderEditKeyframe(kf, origKf, segIdx, kfIdx) {
     const isNew = !origKf;
     const timeDiff = !isNew && Number(kf.time) !== Number(origKf.time);
@@ -3440,6 +3460,15 @@ function onEditSegField(segIdx, field, value, rerender) {
         renderEditTab();
         renderTimeline();
     }
+}
+
+function onEditThinkField(value, rerender) {
+    const out = getCurrentEditOutput();
+    if (!out) return;
+    out._think = value;
+    recomputeEditedFlag(out);
+    debouncedEditSave();
+    if (rerender) renderEditTab();
 }
 
 function onEditKfField(segIdx, kfIdx, field, value, rerender) {
@@ -3523,6 +3552,15 @@ function removeEditKeyframe(segIdx, kfIdx) {
     renderEditTab();
 }
 
+function resetEditThink() {
+    const out = getCurrentEditOutput();
+    if (!out) return;
+    out._think = out._original_think || '';
+    recomputeEditedFlag(out);
+    debouncedEditSave();
+    renderEditTab();
+}
+
 function resetEditField(segIdx, field) {
     const out = getCurrentEditOutput();
     const seg = out?.segments?.[segIdx];
@@ -3547,14 +3585,16 @@ function resetAllEdits() {
     if (!out?._original_segments) { alert('暂无原始快照'); return; }
     if (!confirm('丢弃所有编辑，还原为原始版本？')) return;
     out.segments = JSON.parse(JSON.stringify(out._original_segments));
+    out._think = out._original_think || '';
     out._edited = false;
     debouncedEditSave();
     renderEditTab();
     renderTimeline();
 }
 
-function serializeToSegmentDetail(segments) {
+function serializeToSegmentDetail(segments, thinkText = '') {
     return {
+        think: thinkText || '',
         segment_detail: (segments || []).map(seg => ({
             time: [Number(seg.start) || 0, Number(seg.end) || 0],
             text: seg.description || '',
@@ -3571,7 +3611,7 @@ function serializeToSegmentDetail(segments) {
 function copyStandardJson() {
     const out = getCurrentEditOutput();
     if (!out?.segments) { alert('暂无数据'); return; }
-    const json = JSON.stringify(serializeToSegmentDetail(out.segments), null, 2);
+    const json = JSON.stringify(serializeToSegmentDetail(out.segments, out._think || ''), null, 2);
     const done = () => showEditToast('已复制标准 JSON');
     if (navigator.clipboard?.writeText) {
         navigator.clipboard.writeText(json).then(done).catch(() => fallbackCopy(json, done));
@@ -3612,7 +3652,7 @@ function exportEditedJsonl() {
     tasks.forEach(task => {
         (task.model_outputs || []).forEach(out => {
             if (!out || out._parseError || !Array.isArray(out.segments)) return;
-            lines.push(JSON.stringify(serializeToSegmentDetail(out.segments)));
+            lines.push(JSON.stringify(serializeToSegmentDetail(out.segments, out._think || '')));
         });
     });
     if (!lines.length) { alert('暂无可导出的分段数据'); return; }
@@ -3634,7 +3674,9 @@ window.moveEditSegment = moveEditSegment;
 window.addEditKeyframe = addEditKeyframe;
 window.removeEditKeyframe = removeEditKeyframe;
 window.onEditSegField = onEditSegField;
+window.onEditThinkField = onEditThinkField;
 window.onEditKfField = onEditKfField;
+window.resetEditThink = resetEditThink;
 window.resetEditField = resetEditField;
 window.resetAllEdits = resetAllEdits;
 window.copyStandardJson = copyStandardJson;
