@@ -449,20 +449,21 @@
                 <button id="mode-profile" onclick="switchReviewMode('profile')" class="mode-btn">全篇画像</button>
                 <button id="mode-audiovisual" onclick="switchReviewMode('audiovisual')" class="mode-btn">音画质量</button>
             </div>
-            <!-- Bug report -->
-            <a href="https://ku.baidu-int.com/knowledge/HFVrC7hq1Q/pKzJfZczuc/eSUzhRjlC9/brU8mPglEHsDrC"
-               target="_blank" rel="noopener"
-               class="absolute right-52 text-xs text-gray-400 hover:text-gray-600 transition-colors">报个 bug</a>
-            <!-- Help -->
-            <button onclick="showHelp()" class="absolute right-6 w-7 h-7 rounded-full bg-white/80 hover:bg-white shadow-sm flex items-center justify-center text-gray-400 transition-all">
-                <span class="mdi mdi-help text-base"></span>
-            </button>
+            <div class="absolute right-[100px] flex items-center gap-4">
+                <!-- Version Badge -->
+                <div id="version-badge" class="text-xs text-gray-400 select-none pointer-events-none" style="font-variant-numeric: tabular-nums;"></div>
+                <!-- Bug report -->
+                <a href="https://ku.baidu-int.com/knowledge/HFVrC7hq1Q/pKzJfZczuc/eSUzhRjlC9/brU8mPglEHsDrC"
+                   target="_blank" rel="noopener"
+                   class="text-xs text-gray-400 hover:text-gray-600 transition-colors whitespace-nowrap">文档&amp;反馈</a>
+            </div>
+
             <!-- Settings -->
-            <button onclick="showSettings()" class="absolute right-16 w-7 h-7 rounded-full bg-white/80 hover:bg-white shadow-sm flex items-center justify-center text-gray-400 transition-all" title="LLM 修复设置">
+            <button onclick="showSettings()" class="absolute right-6 w-7 h-7 rounded-full bg-white/80 hover:bg-white shadow-sm flex items-center justify-center text-gray-400 transition-all" title="LLM 修复设置">
                 <span class="mdi mdi-cog text-base"></span>
             </button>
             <!-- 全屏 -->
-            <button id="btn-native-fullscreen" onclick="toggleNativeFullscreen()" class="absolute right-28 w-7 h-7 rounded-full bg-white/80 hover:bg-white shadow-sm flex items-center justify-center text-gray-400 transition-all" title="全屏">
+            <button id="btn-native-fullscreen" onclick="toggleNativeFullscreen()" class="absolute right-16 w-7 h-7 rounded-full bg-white/80 hover:bg-white shadow-sm flex items-center justify-center text-gray-400 transition-all" title="全屏">
                 <span class="mdi mdi-fullscreen text-base"></span>
             </button>
         </div>
@@ -1204,40 +1205,6 @@
     </div>
 
     <!-- 帮助模态框 -->
-    <div id="help-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
-        <div class="bg-white rounded-lg shadow-xl w-[500px] max-h-[80vh] overflow-auto">
-            <div class="p-4 border-b flex justify-between items-center">
-                <h3 class="text-lg font-bold">使用帮助</h3>
-                <button onclick="closeHelpModal()" class="text-gray-400 hover:text-gray-600">
-                    <span class="mdi mdi-close text-xl"></span>
-                </button>
-            </div>
-            <div class="p-4 text-sm">
-                <h4 class="font-bold mb-2">快捷键</h4>
-                <table class="w-full mb-4">
-                    <tr class="border-b"><td class="py-1"><kbd class="bg-gray-100 px-2 rounded">Space</kbd></td><td>播放/暂停</td></tr>
-                    <tr class="border-b"><td class="py-1"><kbd class="bg-gray-100 px-2 rounded">←</kbd></td><td>后退5秒</td></tr>
-                    <tr class="border-b"><td class="py-1"><kbd class="bg-gray-100 px-2 rounded">→</kbd></td><td>前进5秒</td></tr>
-                    <tr class="border-b"><td class="py-1"><kbd class="bg-gray-100 px-2 rounded">1-5</kbd></td><td>快速打分（当前维度）</td></tr>
-                    <tr class="border-b"><td class="py-1"><kbd class="bg-gray-100 px-2 rounded">Enter</kbd></td><td>提交并下一条</td></tr>
-                    <tr class="border-b"><td class="py-1"><kbd class="bg-gray-100 px-2 rounded">Tab</kbd></td><td>切换维度标签</td></tr>
-                </table>
-                <h4 class="font-bold mb-2">数据格式说明</h4>
-                <pre class="bg-gray-100 p-2 rounded text-xs overflow-auto">[
-  {
-    "id": "task-001",
-    "video_url": "https://example.com/video.mp4",
-    "model_output": {
-      "segments": [...],
-      "text_understanding": {...},
-      "visual_understanding": {...},
-      "keyframes": [...]
-    }
-  }
-]</pre>
-            </div>
-        </div>
-    </div>
 
     <!-- LLM 设置面板 -->
     <div id="settings-modal" class="fixed inset-0 bg-black bg-opacity-50 hidden items-center justify-center z-50">
@@ -1294,9 +1261,13 @@
 // ============================================
 // 视频审查工作台 - 主应用逻辑
 // build: 2026-03-10a
-const APP_VERSION = '2026-0508a';
+const APP_VERSION = '2026-0508b';
 // ============================================
 console.log('%c[app.js] 脚本已加载 ' + new Date().toLocaleTimeString(), 'color:green;font-weight:bold');
+document.addEventListener('DOMContentLoaded', () => {
+    const badge = document.getElementById('version-badge');
+    if (badge) badge.textContent = APP_VERSION;
+});
 
 // ============================================
 // 全局错误兜底：捕获未处理异常，在 UI 顶部显示错误条
@@ -6833,19 +6804,8 @@ async function loadAllWorkspaceData() {
 // ============================================
 // 帮助
 // ============================================
-function showHelp() {
-    document.getElementById('help-modal').classList.remove('hidden');
-    document.getElementById('help-modal').classList.add('flex');
-}
-
-function closeHelpModal() {
-    document.getElementById('help-modal').classList.add('hidden');
-    document.getElementById('help-modal').classList.remove('flex');
-}
-
 function showFormatHelp() {
-    closeImportModal();
-    showHelp();
+    // no-op: help modal removed
 }
 
 // ============================================

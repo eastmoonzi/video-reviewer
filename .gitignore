@@ -2,3 +2,8 @@
 *.jsonl
 *.csv
 temp.md
+node_modules/
+.comate/
+.DS_Store
+.crossnote/
+.claude/
