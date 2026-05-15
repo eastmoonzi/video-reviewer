@@ -258,6 +258,7 @@
         .comparison-column .comp-body .space-y-6 > * + * { margin-top: 1.5rem; }
         .diff-ins { background: #dcfce7; color: #166534; border-radius: 2px; padding: 0 1px; }
         .diff-del { background: #fee2e2; color: #991b1b; border-radius: 2px; padding: 0 1px; text-decoration: line-through; }
+        .edit-diff-preview { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; line-height: 1.6; max-height: 120px; overflow-y: auto; }
         .task-item.search-highlight {
             background: #fef9c3;
             outline: 1.5px solid #facc15;
@@ -350,6 +351,9 @@
                         </div>
                         <div onclick="exportEditedJsonl(); hideExportMenu();" class="px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 cursor-pointer flex items-center gap-2">
                             <span class="mdi mdi-script-text-outline text-purple-500"></span>导出编辑版 JSONL
+                        </div>
+                        <div onclick="exportEditedExcel(); hideExportMenu();" class="px-3 py-1.5 text-xs text-gray-700 hover:bg-gray-50 cursor-pointer flex items-center gap-2">
+                            <span class="mdi mdi-file-excel-outline text-emerald-600"></span>导出编辑版 Excel
                         </div>
                     </div>
                 </div>
@@ -1258,7 +1262,7 @@
     <script>
 // ============================================
 // 视频审查工作台 - 主应用逻辑
-const APP_VERSION = '2026-0508c';
+const APP_VERSION = '2026-0515a';
 // ============================================
 console.log('%c[app.js] 脚本已加载 ' + new Date().toLocaleTimeString(), 'color:green;font-weight:bold');
 
@@ -2972,24 +2976,22 @@ function renderTabContent(tabName) {
     if (!task) return;
 
     const output = task.model_output || {};
-    // 解析失败时自动跳到原文 tab
     if (output._parseError && tabName !== 'raw') {
         switchTab('raw');
         return;
     }
     const segments = output.segments || [];
-    // 只读 tab 若存在原始快照则优先显示原始，保证它们作为"原始视图"不被编辑污染
-    const readOnlySegments = output._original_segments || segments;
+    const origSegments = output._original_segments || null;
 
     switch (tabName) {
         case 'text':
-            renderTextUnderstanding(readOnlySegments);
+            renderTextUnderstanding(segments, origSegments);
             break;
         case 'visual':
-            renderVisualUnderstanding(readOnlySegments);
+            renderVisualUnderstanding(segments, origSegments);
             break;
         case 'keyframe':
-            renderKeyframeList(readOnlySegments);
+            renderKeyframeList(segments, origSegments);
             break;
         case 'edit':
             enterEditTab();
@@ -3040,15 +3042,23 @@ function renderRawContent(output, containerId) {
 window.renderRawContent = renderRawContent;
 
 // 渲染文本理解（显示每个片段的 text 字段）- Ive Style: Unified Gray
-function renderTextUnderstanding(segments) {
+function renderTextUnderstanding(segments, origSegments) {
     const container = document.getElementById('text-content');
     if (segments.length === 0) {
         container.innerHTML = '<div class="text-gray-400 text-center py-8">暂无文本数据</div>';
         return;
     }
 
-    container.innerHTML = segments.map((seg, i) => `
-        <div class="p-4 rounded-2xl bg-black/[0.03] cursor-pointer hover:bg-black/[0.06] transition-all duration-200 active:scale-[0.99]"
+    container.innerHTML = segments.map((seg, i) => {
+        const curText = seg.description || seg.text || '';
+        const orig = origSegments?.[i];
+        const origText = orig ? (orig.description || orig.text || '') : null;
+        const hasDiff = origText !== null && curText !== origText;
+        const textHtml = hasDiff
+            ? renderDiffHtml(computeRawDiff(origText, curText))
+            : (escapeHTML(curText) || '无文本');
+        return `
+        <div class="p-4 rounded-2xl bg-black/[0.03] cursor-pointer hover:bg-black/[0.06] transition-all duration-200 active:scale-[0.99] ${hasDiff ? 'border-l-2 border-amber-300' : ''}"
              onclick="seekToTime(${seg.start})">
             <div class="flex justify-between items-center mb-2">
                 <span class="text-xs font-semibold text-gray-800 tracking-wide">${i + 1}</span>
@@ -3056,21 +3066,29 @@ function renderTextUnderstanding(segments) {
                     ${formatTime(seg.start)} → ${formatTime(seg.end)}
                 </span>
             </div>
-            <p class="text-[15px] text-gray-700 leading-relaxed">${(seg.description || seg.text || '') || '无文本'}</p>
-        </div>
-    `).join('');
+            <p class="text-[15px] text-gray-700 leading-relaxed">${textHtml}</p>
+        </div>`;
+    }).join('');
 }
 
 // 渲染视觉理解（只显示 vis 分段文字描述）- Ive Style: Unified Gray
-function renderVisualUnderstanding(segments) {
+function renderVisualUnderstanding(segments, origSegments) {
     const container = document.getElementById('visual-content');
     if (segments.length === 0) {
         container.innerHTML = '<div class="text-gray-400 text-center py-8">暂无视觉数据</div>';
         return;
     }
 
-    container.innerHTML = segments.map((seg, i) => `
-        <div class="p-4 rounded-2xl bg-black/[0.03] cursor-pointer hover:bg-black/[0.06] transition-all duration-200 active:scale-[0.99]"
+    container.innerHTML = segments.map((seg, i) => {
+        const curVis = seg.visual || '';
+        const orig = origSegments?.[i];
+        const origVis = orig ? (orig.visual || '') : null;
+        const hasDiff = origVis !== null && curVis !== origVis;
+        const visHtml = hasDiff
+            ? renderDiffHtml(computeRawDiff(origVis, curVis))
+            : (linkifyTime(curVis) || '无视觉描述');
+        return `
+        <div class="p-4 rounded-2xl bg-black/[0.03] cursor-pointer hover:bg-black/[0.06] transition-all duration-200 active:scale-[0.99] ${hasDiff ? 'border-l-2 border-amber-300' : ''}"
              onclick="seekToTime(${seg.start})">
             <div class="flex justify-between items-center mb-2">
                 <span class="text-xs font-semibold text-gray-800 tracking-wide">${i + 1}</span>
@@ -3078,23 +3096,26 @@ function renderVisualUnderstanding(segments) {
                     ${formatTime(seg.start)} → ${formatTime(seg.end)}
                 </span>
             </div>
-            <p class="text-[15px] text-gray-700 leading-relaxed">${linkifyTime(seg.visual || '') || '无视觉描述'}</p>
-        </div>
-    `).join('');
+            <p class="text-[15px] text-gray-700 leading-relaxed">${visHtml}</p>
+        </div>`;
+    }).join('');
 }
 
 // 渲染关键帧列表（按时间点击跳转）- Ive Style: Unified Gray
-function renderKeyframeList(segments) {
+function renderKeyframeList(segments, origSegments) {
     const container = document.getElementById('keyframe-content');
-    
-    // 从所有片段中提取关键帧
+
     const allKeyframes = [];
     segments.forEach((seg, segIdx) => {
         if (seg.keyframes && Array.isArray(seg.keyframes)) {
-            seg.keyframes.forEach(kf => {
+            const origKfs = origSegments?.[segIdx]?.keyframes || [];
+            seg.keyframes.forEach((kf, kfIdx) => {
+                const origKf = origKfs[kfIdx];
                 allKeyframes.push({
                     ...kf,
-                    segmentIndex: segIdx + 1
+                    segmentIndex: segIdx + 1,
+                    _origKf: origKf || null,
+                    _isNew: origSegments && !origKf
                 });
             });
         }
@@ -3105,21 +3126,33 @@ function renderKeyframeList(segments) {
         return;
     }
 
-    // 按时间排序
     allKeyframes.sort((a, b) => a.time - b.time);
 
-    container.innerHTML = allKeyframes.map(kf => `
-        <div class="flex items-center gap-3 p-3 rounded-xl bg-black/[0.03] cursor-pointer hover:bg-black/[0.06] transition-all duration-200 active:scale-[0.99]"
+    container.innerHTML = allKeyframes.map(kf => {
+        const origKf = kf._origKf;
+        const isNew = kf._isNew;
+        const labelText = kf.label || kf.desc || '';
+        const origLabel = origKf ? (origKf.label || origKf.desc || '') : null;
+        const labelDiff = origLabel !== null && labelText !== origLabel;
+        const labelHtml = isNew
+            ? `<span class="diff-ins">${escapeHTML(labelText) || '关键帧'}</span>`
+            : labelDiff
+                ? renderDiffHtml(computeRawDiff(origLabel, labelText))
+                : (escapeHTML(labelText) || '关键帧');
+        const borderClass = (isNew || labelDiff) ? 'border-l-2 border-amber-300' : '';
+        return `
+        <div class="flex items-center gap-3 p-3 rounded-xl bg-black/[0.03] cursor-pointer hover:bg-black/[0.06] transition-all duration-200 active:scale-[0.99] ${borderClass}"
              onclick="seekToTime(${kf.time})">
             <span class="px-2.5 py-1 bg-black text-white text-[11px] font-medium rounded-full whitespace-nowrap font-mono">
                 ${formatTime(kf.time)}
             </span>
             <div class="flex-1">
-                <span class="text-[14px] text-gray-700">${kf.label || kf.desc || '关键帧'}</span>
+                <span class="text-[14px] text-gray-700">${labelHtml}</span>
                 <span class="text-[11px] text-gray-400 ml-2">§${kf.segmentIndex}</span>
+                ${isNew ? '<span class="text-[10px] px-1 rounded bg-green-100 text-green-700 ml-1">新增</span>' : ''}
             </div>
-        </div>
-    `).join('');
+        </div>`;
+    }).join('');
 }
 
 function renderSegments(segments) {
@@ -3321,6 +3354,7 @@ function renderEditSegmentCard(seg, orig, i) {
                     oninput="editAutoResize(this); onEditSegField(${i}, 'description', this.value, false)"
                     onblur="onEditSegField(${i}, 'description', this.value, true)"
                     class="edit-auto-resize w-full px-3 py-2 text-[14px] leading-relaxed border border-gray-200 rounded-lg focus:outline-none focus:border-blue-400 resize-none">${escapeHTML(seg.description || '')}</textarea>
+                ${textDiff ? `<div class="edit-diff-preview mt-1 px-3 py-2 text-[13px] leading-relaxed">${renderDiffHtml(computeRawDiff(orig?.description || '', seg.description || ''))}</div>` : ''}
             </div>
 
             <div class="mb-3 ${visDiff ? 'pl-3 border-l-2 border-amber-300' : ''}">
@@ -3332,6 +3366,7 @@ function renderEditSegmentCard(seg, orig, i) {
                     oninput="editAutoResize(this); onEditSegField(${i}, 'visual', this.value, false)"
                     onblur="onEditSegField(${i}, 'visual', this.value, true)"
                     class="edit-auto-resize w-full px-3 py-2 text-[14px] leading-relaxed border border-gray-200 rounded-lg focus:outline-none focus:border-blue-400 resize-none">${escapeHTML(seg.visual || '')}</textarea>
+                ${visDiff ? `<div class="edit-diff-preview mt-1 px-3 py-2 text-[13px] leading-relaxed">${renderDiffHtml(computeRawDiff(orig?.visual || '', seg.visual || ''))}</div>` : ''}
             </div>
 
             <div class="mt-3">
@@ -3367,6 +3402,7 @@ function renderEditThinkBlock(out) {
                 oninput="editAutoResize(this); onEditThinkField(this.value, false)"
                 onblur="onEditThinkField(this.value, true)"
                 class="edit-auto-resize w-full px-3 py-2 text-[14px] leading-relaxed border border-gray-200 rounded-lg focus:outline-none focus:border-blue-400 resize-none">${escapeHTML(think)}</textarea>
+            ${thinkDiff ? `<div class="edit-diff-preview mt-1 px-3 py-2 text-[13px] leading-relaxed">${renderDiffHtml(computeRawDiff(origThink, think))}</div>` : ''}
         </div>
     `;
 }
@@ -3634,6 +3670,66 @@ function exportEditedJsonl() {
     showEditToast(`已导出 ${lines.length} 条`);
 }
 
+function exportEditedExcel() {
+    const tasks = getTasks();
+    if (!tasks?.length) { alert('暂无任务'); return; }
+    const rows = [];
+    tasks.forEach((task, taskIdx) => {
+        const videoUrl = task.video_url || task.videoUrl || '';
+        (task.model_outputs || []).forEach((out, outIdx) => {
+            if (!out || out._parseError || !Array.isArray(out.segments)) return;
+            const modelName = task.model_names?.[outIdx] || out._modelName || '';
+            const curJson = JSON.stringify(serializeToSegmentDetail(out.segments, out._think || ''), null, 2);
+            const origs = out._original_segments || null;
+            const origThink = out._original_think ?? (out._think || '');
+            const origJson = origs
+                ? JSON.stringify(serializeToSegmentDetail(origs, origThink), null, 2)
+                : null;
+            rows.push({ taskIdx: taskIdx + 1, videoUrl, modelName, curJson, origJson });
+        });
+    });
+    if (!rows.length) { alert('暂无可导出的分段数据'); return; }
+
+    const esc = s => String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/\n/g,'<br>');
+    function diffCellHtml(cur, orig) {
+        if (!orig || cur === orig) return `<td><pre style="margin:0;white-space:pre-wrap;font-size:11px;">${esc(cur)}</pre></td>`;
+        const groups = computeRawDiff(orig, cur);
+        const parts = groups.map(g => {
+            const t = esc(g.text);
+            if (g.type === 'ins') return `<font color="#dc2626"><b>${t}</b></font>`;
+            if (g.type === 'del') return `<s><font color="#9ca3af">${t}</font></s>`;
+            return t;
+        }).join('');
+        return `<td><pre style="margin:0;white-space:pre-wrap;font-size:11px;">${parts}</pre></td>`;
+    }
+
+    const header = `<tr style="background:#f3f4f6;font-weight:bold;">
+        <td>序号</td><td>视频URL</td><td>模型</td><td>内容(JSON)</td>
+    </tr>`;
+    const bodyRows = rows.map(r => `<tr>
+        <td>${r.taskIdx}</td><td>${esc(r.videoUrl)}</td><td>${esc(r.modelName)}</td>
+        ${diffCellHtml(r.curJson, r.origJson)}
+    </tr>`).join('');
+
+    const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office"
+xmlns:x="urn:schemas-microsoft-com:office:excel"
+xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="utf-8">
+<style>td{vertical-align:top;border:1px solid #d1d5db;padding:4px 8px;font-size:12px;}</style>
+</head><body><table>${header}${bodyRows}</table></body></html>`;
+
+    const blob = new Blob(['﻿' + html], { type: 'application/vnd.ms-excel;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `编辑版分段详情-${new Date().toISOString().slice(0, 10)}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showEditToast(`已导出 ${rows.length} 条`);
+}
+
 window.addEditSegment = addEditSegment;
 window.removeEditSegment = removeEditSegment;
 window.moveEditSegment = moveEditSegment;
@@ -3647,6 +3743,7 @@ window.resetEditField = resetEditField;
 window.resetAllEdits = resetAllEdits;
 window.copyStandardJson = copyStandardJson;
 window.exportEditedJsonl = exportEditedJsonl;
+window.exportEditedExcel = exportEditedExcel;
 window.editAutoResize = editAutoResize;
 window.renderEditTab = renderEditTab;
 window.enterEditTab = enterEditTab;
@@ -9015,6 +9112,44 @@ function computeDiff(a, b) {
         }
     }
     groups.truncated = truncated;
+    return groups;
+}
+
+function computeRawDiff(a, b) {
+    a = String(a || ''); b = String(b || '');
+    if (a === b) return [{ type: 'equal', text: a }];
+    const cap = 2000;
+    const capA = a.slice(0, cap), capB = b.slice(0, cap);
+    const ma = capA.length, nb = capB.length;
+    const dp = [];
+    for (let i = 0; i <= ma; i++) dp[i] = new Int16Array(nb + 1);
+    for (let i = 1; i <= ma; i++) {
+        for (let j = 1; j <= nb; j++) {
+            dp[i][j] = capA[i - 1] === capB[j - 1]
+                ? dp[i - 1][j - 1] + 1
+                : Math.max(dp[i - 1][j], dp[i][j - 1]);
+        }
+    }
+    const ops = [];
+    let i = ma, j = nb;
+    while (i > 0 || j > 0) {
+        if (i > 0 && j > 0 && capA[i - 1] === capB[j - 1]) {
+            ops.push({ type: 'equal', ch: capA[i - 1] }); i--; j--;
+        } else if (j > 0 && (i === 0 || dp[i][j - 1] >= dp[i - 1][j])) {
+            ops.push({ type: 'ins', ch: capB[j - 1] }); j--;
+        } else {
+            ops.push({ type: 'del', ch: capA[i - 1] }); i--;
+        }
+    }
+    ops.reverse();
+    const groups = [];
+    for (const op of ops) {
+        if (groups.length && groups[groups.length - 1].type === op.type) {
+            groups[groups.length - 1].text += op.ch;
+        } else {
+            groups.push({ type: op.type, text: op.ch });
+        }
+    }
     return groups;
 }
 
